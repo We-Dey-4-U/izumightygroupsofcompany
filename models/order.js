@@ -1,11 +1,10 @@
 const mongoose = require("mongoose");
-//const {object} = requuire("joi");
 
 const orderSchema = new mongoose.Schema(
   {
     userId: { type: String, required: true },
     customerId: { type: String },
-    paymentIntentId: {type: String},
+    paymentIntentId: { type: String },
     products: [],
     subtotal: { type: Number, required: true },
     total: { type: Number, required: true },
@@ -16,6 +15,5 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const Order = mongoose.model("Order", orderSchema);
-
-exports.Order = Order;
+// ✅ Prevent OverwriteModelError:
+module.exports = mongoose.models.Order || mongoose.model("Order", orderSchema);
