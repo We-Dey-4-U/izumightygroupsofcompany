@@ -44,11 +44,9 @@ mongoose
 
 // Local server for development
 const port = process.env.PORT || 2000;
-if (process.env.NODE_ENV !== "production") {
-  app.listen(port, () => {
-    console.log(`Server running locally on port ${port}...`);
-  });
-}
+app.listen(port, () => {
+  console.log(`Server running on port ${port}...`);
+});
 
 // ✅ Export app for Vercel
 module.exports = app;
