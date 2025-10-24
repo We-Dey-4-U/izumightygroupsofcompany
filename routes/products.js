@@ -20,8 +20,9 @@ const storage = multer.diskStorage({
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif/;
-  const valid = allowedTypes.test(path.extname(file.originalname).toLowerCase()) &&
-                allowedTypes.test(file.mimetype);
+  const valid =
+    allowedTypes.test(path.extname(file.originalname).toLowerCase()) &&
+    allowedTypes.test(file.mimetype);
   cb(valid ? null : new Error("Only images are allowed"), valid);
 };
 
@@ -30,18 +31,21 @@ const upload = multer({ storage, fileFilter });
 // --- CREATE PRODUCT ---
 router.post("/", isAdmin, upload.single("image"), async (req, res) => {
   try {
-    const { name, brand, desc, price } = req.body;
+    const { name, category, desc, price, originalPrice, rating } = req.body;
     const image = req.file ? req.file.path : null;
 
-    console.log("Creating product:", { name, brand, desc, price, image });
+    console.log("Creating product:", { name, category, desc, price, originalPrice, rating, image });
 
     const product = new Product({
       name,
-      brand,
+      category,           // ✅ use category enum
       desc,
       price: Number(price),
+      originalPrice: originalPrice ? Number(originalPrice) : undefined,
+      rating: rating ? Number(rating) : undefined,
       image,
     });
+
     const savedProduct = await product.save();
     console.log("Product saved:", savedProduct);
     res.status(200).send(savedProduct);
@@ -51,16 +55,27 @@ router.post("/", isAdmin, upload.single("image"), async (req, res) => {
   }
 });
 
-// --- UPDATE ---
+// --- UPDATE PRODUCT ---
 router.put("/:id", isAdmin, upload.single("image"), async (req, res) => {
   try {
     const updateData = { ...req.body };
+
     if (req.file) {
       const product = await Product.findById(req.params.id);
       if (product.image) fs.unlink(product.image, (err) => err && console.error(err));
       updateData.image = req.file.path;
     }
-    const updatedProduct = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true });
+
+    if (updateData.price) updateData.price = Number(updateData.price);
+    if (updateData.originalPrice) updateData.originalPrice = Number(updateData.originalPrice);
+    if (updateData.rating) updateData.rating = Number(updateData.rating);
+
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    );
+
     console.log("Product updated:", updatedProduct);
     res.status(200).send(updatedProduct);
   } catch (error) {
@@ -69,7 +84,7 @@ router.put("/:id", isAdmin, upload.single("image"), async (req, res) => {
   }
 });
 
-// --- DELETE ---
+// --- DELETE PRODUCT ---
 router.delete("/:id", isAdmin, async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
@@ -84,11 +99,10 @@ router.delete("/:id", isAdmin, async (req, res) => {
   }
 });
 
-
 // --- GET ALL PRODUCTS ---
 router.get("/", async (req, res) => {
   try {
-    const products = await Product.find(); // fetch all products from DB
+    const products = await Product.find();
     console.log("Fetched products:", products);
     res.status(200).send(products);
   } catch (error) {
@@ -97,7 +111,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// --- GET SINGLE PRODUCT (optional) ---
+// --- GET SINGLE PRODUCT ---
 router.get("/:id", async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
@@ -108,5 +122,20 @@ router.get("/:id", async (req, res) => {
     res.status(500).send(error);
   }
 });
+
+
+
+// --- GET PRODUCTS BY CATEGORY ---
+router.get("/category/:category", async (req, res) => {
+  try {
+    const products = await Product.find({ category: req.params.category });
+    console.log(`Fetched products for category ${req.params.category}:`, products);
+    res.status(200).json(products);
+  } catch (err) {
+    console.error("Fetch products by category error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 module.exports = router;

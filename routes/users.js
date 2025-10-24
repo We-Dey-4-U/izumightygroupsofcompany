@@ -4,7 +4,7 @@ const { auth, isUser, isAdmin } = require("../middleware/auth");
 
 const router = require("express").Router();
 
-//Get user stats (only admin can access this data right )
+//Get user stats (only admin can access this data right k
 
 router.get("/stats", isAdmin,   async (req, res) => {
     const previousMonth = moment()    //moment here will help us get the currnt date
