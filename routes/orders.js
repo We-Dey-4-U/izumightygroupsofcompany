@@ -1,7 +1,7 @@
 // routes/orders.js
 const router = require("express").Router();
 const { auth, isUser, isAdmin } = require("../middleware/auth");
-const Order = require("../models/Order");
+const Order = require("../models/order");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");

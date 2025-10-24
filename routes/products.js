@@ -1,4 +1,4 @@
-const { Product } = require("../models/Product");
+const { Product } = require("../models/product");
 const { isAdmin } = require("../middleware/auth");
 const router = require("express").Router();
 const multer = require("multer");
