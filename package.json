@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-     "start": "node index.js",
-  "dev": "nodemon index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "author": "",
   "license": "ISC",
@@ -16,11 +16,13 @@
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
+    "form-data": "^4.0.4",
     "joi": "^17.8.4",
     "jsonwebtoken": "^9.0.0",
     "moment": "^2.29.4",
     "mongoose": "^7.0.2",
     "multer": "^2.0.2",
+    "node-appwrite": "^20.2.1",
     "nodemon": "^2.0.21",
     "stripe": "^11.15.0"
   }

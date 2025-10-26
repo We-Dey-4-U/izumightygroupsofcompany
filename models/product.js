@@ -37,7 +37,10 @@ const productSchema = new mongoose.Schema(
     desc: { type: String, required: true },
     price: { type: Number, required: true },
     originalPrice: { type: Number }, // optional, for discounts
-    image: { type: Object, required: true },
+    images: [{ 
+  id: String, 
+  url: String 
+}],
     rating: { type: Number, default: 4, min: 1, max: 5 }, // ⭐ rating between 1-5
   },
   { timestamps: true } // to know when the product was uploaded

@@ -7,7 +7,7 @@ const path = require("path");
 const fs = require("fs");
 const moment = require("moment");
 
-// Ensure uploads/receipts folder existt
+// Ensure uploads/receipts folder existttttttttttttttt
 const receiptDir = path.join(__dirname, "..", "uploads", "receipts");
 if (!fs.existsSync(receiptDir)) {
   fs.mkdirSync(receiptDir, { recursive: true });
