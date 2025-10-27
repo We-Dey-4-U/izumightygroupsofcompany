@@ -8,9 +8,17 @@ const productsRoute = require("./routes/products");
 const users = require("./routes/users");
 const orders = require("./routes/orders");
 const products = require("./products");
+
+const prerender = require("prerender-node");
 require("dotenv").config();
 
 const app = express();
+
+// Optional: set your token if you use prerender.io
+// (you’ll get it when you sign up for a free account)
+prerender.set('prerenderToken', process.env.PRERENDER_TOKEN);
+
+app.use(prerender);
 
 app.use(express.json());
 app.use(cors());

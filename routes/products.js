@@ -84,6 +84,9 @@ async function uploadToAppwrite(file) {
 
 // ---- CREATE PRODUCT ----
 router.post("/", isAdmin, upload.array("images"), async (req, res) => {
+   console.log("Incoming files:", req.files?.length, req.files?.map(f => f.originalname));
+  console.log("Headers:", req.headers["content-type"]);
+  console.log("Body keys:", Object.keys(req.body));
   console.log("🟢 [POST /products] Request received");
   try {
     const { name, category, desc, price, originalPrice, rating } = req.body;
