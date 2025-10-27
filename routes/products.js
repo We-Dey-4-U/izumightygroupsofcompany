@@ -245,40 +245,57 @@ router.get("/og/product/:id", async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).send("Product not found");
 
-  let imageUrl = `${process.env.FRONTEND_URL}/placeholder.png`;
+  // Default placeholder image
+  let imageUrl = `${process.env.CLIENT_URL}/placeholder.png`;
+
   if (product.images?.length) {
     const img = product.images[0];
-    imageUrl = img.id
-      ? `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${img.id}/view?project=${process.env.APPWRITE_PROJECT_ID}`
-      : img.url;
+
+    // If Appwrite file ID exists, generate full URL
+    if (img.id) {
+      imageUrl = `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${img.id}/view?project=${process.env.APPWRITE_PROJECT_ID}`;
+    } 
+    // Otherwise, use URL or make absolute
+    else if (img.url) {
+      if (img.url.startsWith("http")) {
+        imageUrl = img.url;
+      } else {
+        imageUrl = `${process.env.CLIENT_URL}${img.url}`;
+      }
+    }
   }
 
+  // Escape HTML to prevent injection
   const escapeHTML = (str) =>
-    str.replace(/&/g, "&amp;")
-       .replace(/</g, "&lt;")
-       .replace(/>/g, "&gt;")
-       .replace(/"/g, "&quot;")
-       .replace(/'/g, "&#39;");
+    String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
 
+  // Server-rendered OG HTML for social media crawlers
   res.set("Content-Type", "text/html");
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="utf-8" />
-      <title>${escapeHTML(product.name)} | CrushBanna</title>
-      <meta property="og:title" content="${escapeHTML(product.name)}" />
-      <meta property="og:description" content="${escapeHTML(product.desc)}" />
-      <meta property="og:image" content="${imageUrl}" />
-      <meta property="og:url" content="${process.env.FRONTEND_URL}/product/${product._id}" />
-      <meta property="og:type" content="product" />
-    </head>
-    <body>
-      <h1>${escapeHTML(product.name)}</h1>
-      <img src="${imageUrl}" />
-    </body>
-    </html>
-  `);
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHTML(product.name)} | CrushStore</title>
+  <meta property="og:title" content="${escapeHTML(product.name)}" />
+  <meta property="og:description" content="${escapeHTML(product.desc)}" />
+  <meta property="og:image" content="${imageUrl}" />
+  <meta property="og:url" content="${process.env.CLIENT_URL}/product/${product._id}" />
+  <meta property="og:type" content="product" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${escapeHTML(product.name)}" />
+  <meta name="twitter:description" content="${escapeHTML(product.desc)}" />
+  <meta name="twitter:image" content="${imageUrl}" />
+</head>
+<body>
+  <h1>${escapeHTML(product.name)}</h1>
+  <img src="${imageUrl}" alt="${escapeHTML(product.name)}" />
+</body>
+</html>`);
 });
 
 module.exports = router;
