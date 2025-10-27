@@ -237,6 +237,50 @@ router.get("/category/:category", async (req, res) => {
   }
 });
 
+
+
+
+
+router.get("/og/product/:id", async (req, res) => {
+  const product = await Product.findById(req.params.id);
+  if (!product) return res.status(404).send("Product not found");
+
+  let imageUrl = `${process.env.FRONTEND_URL}/placeholder.png`;
+  if (product.images?.length) {
+    const img = product.images[0];
+    imageUrl = img.id
+      ? `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${img.id}/view?project=${process.env.APPWRITE_PROJECT_ID}`
+      : img.url;
+  }
+
+  const escapeHTML = (str) =>
+    str.replace(/&/g, "&amp;")
+       .replace(/</g, "&lt;")
+       .replace(/>/g, "&gt;")
+       .replace(/"/g, "&quot;")
+       .replace(/'/g, "&#39;");
+
+  res.set("Content-Type", "text/html");
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <title>${escapeHTML(product.name)} | CrushBanna</title>
+      <meta property="og:title" content="${escapeHTML(product.name)}" />
+      <meta property="og:description" content="${escapeHTML(product.desc)}" />
+      <meta property="og:image" content="${imageUrl}" />
+      <meta property="og:url" content="${process.env.FRONTEND_URL}/product/${product._id}" />
+      <meta property="og:type" content="product" />
+    </head>
+    <body>
+      <h1>${escapeHTML(product.name)}</h1>
+      <img src="${imageUrl}" />
+    </body>
+    </html>
+  `);
+});
+
 module.exports = router;
 
 
