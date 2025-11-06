@@ -6,32 +6,26 @@ const productSchema = new mongoose.Schema(
     category: { 
       type: String, 
       required: true, 
-      enum: [
-  "Men Clothing",
-  "Women Clothing",
-  "Kids Clothing",
-  "Shoes",
-  "Jackets",
-  "Jewelry",
-  "Accessories",
-  "Cars",
-  "Car Accessories",
-  "Gadgets",
-  "Phones",
-  "Cosmetics",
-  "Sports Equipment",
-  "Home Appliances",
-  "Furniture",
-  "Books",
-  "Toys",
-  "Stationery",
-  "Pet Supplies",
-  "Groceries",
-  "Health & Wellness",
-  "Gaming",
-   "CCTV & Security",
-   "Solar & Energy",
-  "All Products"
+    enum: [
+  "CCTV & Security",                 // access control, security systems
+  "Networking Devices",              // routers, switches, cables
+  "Computers & Laptops",             // desktops, laptops
+  "Servers & Storage",               // NAS, servers, virtualization
+  "Software Solutions",              // ERP, CRM, productivity software
+  "Custom Software Development",     // web, mobile, enterprise apps
+  "Cybersecurity Tools",             // antivirus, firewalls, data encryption
+  "Digital Transformation Tools",    // IoT, automation, business process
+  "Telecom Equipment",               // phones, VoIP, PBX
+  "IT Infrastructure Solutions",     // network design, data centers
+  "Cloud & Hosting Services",        // cloud integration, hosting plans
+  "IT Sales and Deployment",         // sales, deployment of IT equipment
+  "Inventory Solutions",             // stock management, barcode integration
+  "Access Control Solutions",        // facial recognition, time attendance
+  "Tracking Solutions",              // vehicle transit, route planning
+  "Smart Home Automation",           // smart sensors, smart locks
+  "Power & Backup Solutions",        // UPS, generators, solar panels
+  "Printers & Scanners",             // office devices
+  "All Products"                     // catch-all
 ]
     },
     desc: { type: String, required: true },
