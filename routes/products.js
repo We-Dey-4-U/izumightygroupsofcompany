@@ -7,6 +7,7 @@ const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 
+
 // ---- 🧠 Appwrite Connectivity Check ----
 (async () => {
   console.log("🧠 Checking Appwrite configuration...");
@@ -299,6 +300,18 @@ router.get("/og/product/:id", async (req, res) => {
 });
 
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
