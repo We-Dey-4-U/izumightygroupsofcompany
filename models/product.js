@@ -29,6 +29,7 @@ const productSchema = new mongoose.Schema(
 ]
     },
     desc: { type: String, required: true },
+    features: [{ type: String }],
     price: { type: Number, required: true },
     originalPrice: { type: Number }, // optional, for discounts
     images: [{ 
