@@ -84,73 +84,168 @@ async function uploadToAppwrite(file) {
 }
 
 // ---- CREATE PRODUCT ----
+// ---- CREATE PRODUCT ----
+// routes/products.js (create route)
 router.post("/", isAdmin, upload.array("images"), async (req, res) => {
-   console.log("Incoming files:", req.files?.length, req.files?.map(f => f.originalname));
-  console.log("Headers:", req.headers["content-type"]);
-  console.log("Body keys:", Object.keys(req.body));
-  console.log("🟢 [POST /products] Request received");
   try {
-    const { name, category, desc, price, originalPrice, rating } = req.body;
-    console.log("📦 Product data received:", req.body);
+    console.log("📦 [CREATE PRODUCT] Raw req.body:", req.body);
+    console.log("📦 [CREATE PRODUCT] Number of files:", (req.files || []).length);
+
+    const {
+      name,
+      category,
+      desc,
+      price,
+      originalPrice,
+      rating,
+      discountPercent,
+      features
+    } = req.body;
 
     if (!req.files || req.files.length === 0) {
-      console.warn("⚠️ [POST /products] No files uploaded");
       return res.status(400).json({ message: "No images uploaded" });
     }
 
-    console.log(`📸 [POST /products] Uploading ${req.files.length} images...`);
-    const images = await Promise.all(req.files.map((file) => uploadToAppwrite(file)));
-    console.log("✅ [POST /products] Uploaded all images:", images);
+    // --- features parsing: always normalize to array of strings ---
+    let parsedFeatures = [];
+    if (features !== undefined && features !== null && features !== "") {
+      if (Array.isArray(features)) {
+        // multer may give arrays in some cases
+        parsedFeatures = features.map(String).map(f => f.trim()).filter(Boolean);
+      } else {
+        // Try parse JSON, otherwise comma-split
+        try {
+          const maybe = JSON.parse(features);
+          if (Array.isArray(maybe)) {
+            parsedFeatures = maybe.map(String).map(f => f.trim()).filter(Boolean);
+          } else if (typeof maybe === "string") {
+            parsedFeatures = maybe.split(",").map(f => f.trim()).filter(Boolean);
+          }
+        } catch (err) {
+          // Not JSON -> treat as comma-separated string
+          parsedFeatures = String(features).split(",").map(f => f.trim()).filter(Boolean);
+        }
+      }
+    }
+
+    // --- numeric parsing with safe fallbacks ---
+    const parsedPrice = price !== undefined && price !== "" ? Number(price) : 0;
+    const parsedOriginal = originalPrice !== undefined && originalPrice !== "" ? Number(originalPrice) : 0;
+    const parsedRating = rating !== undefined && rating !== "" ? Number(rating) : 0;
+    // Use nullish coalescing to accept 0 as valid
+    const parsedDiscount = (discountPercent !== undefined && discountPercent !== "") ? Number(discountPercent) : 0;
+
+    // Validate numbers
+    if (isNaN(parsedPrice)) return res.status(400).json({ message: "Invalid price" });
+    if (isNaN(parsedDiscount)) return res.status(400).json({ message: "Invalid discountPercent" });
+
+    // upload images to Appwrite
+    const images = await Promise.all(req.files.map(file => uploadToAppwrite(file)));
 
     const product = new Product({
       name,
       category,
       desc,
-      price: Number(price),
-      originalPrice: originalPrice ? Number(originalPrice) : undefined,
-      rating: rating ? Number(rating) : undefined,
+      price: parsedPrice,
+      originalPrice: parsedOriginal,
+      rating: parsedRating,
+      discountPercent: parsedDiscount,
+      features: parsedFeatures,
       images,
     });
 
-    console.log("💾 [POST /products] Saving product to database...");
     const savedProduct = await product.save();
-    console.log("✅ [POST /products] Product saved successfully:", savedProduct._id);
-
+    console.log("✅ Product saved:", savedProduct._id, "discountPercent:", savedProduct.discountPercent, "features:", savedProduct.features);
     res.status(200).json(savedProduct);
   } catch (error) {
-    console.error("❌ [POST /products] Error:", error.message);
-    res.status(500).json({ message: error.message });
+    console.error("❌ [CREATE PRODUCT] Error:", error);
+    res.status(500).json({ message: error.message || String(error) });
+  }
+});
+
+
+
+
+
+//Add a simple route to let users add/remove product to wishlist:
+// Add or remove from wishlist
+router.post("/:id/wishlist", async (req, res) => {
+  const userId = req.body.userId; // send userId from frontend
+  if (!userId) return res.status(400).json({ message: "User ID required" });
+
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+
+    const index = product.wishlistedBy.indexOf(userId);
+    if (index > -1) {
+      // already in wishlist -> remove
+      product.wishlistedBy.splice(index, 1);
+    } else {
+      // add to wishlist
+      product.wishlistedBy.push(userId);
+    }
+
+    await product.save();
+    res.status(200).json({ wishlistedBy: product.wishlistedBy });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
 // ---- UPDATE PRODUCT ----
 router.put("/:id", isAdmin, upload.array("images"), async (req, res) => {
-  console.log("🟡 [PUT /products/:id] Update request received for ID:", req.params.id);
   try {
     const updateData = { ...req.body };
-    console.log("📦 Update data:", updateData);
+    console.log("✏️ [UPDATE PRODUCT] Raw updateData:", updateData, "files:", (req.files || []).length);
 
+    // Handle image uploads if present
     if (req.files && req.files.length > 0) {
-      console.log(`📸 [PUT /products/:id] Uploading ${req.files.length} new images...`);
       const images = await Promise.all(req.files.map((file) => uploadToAppwrite(file)));
       updateData.images = images;
-      console.log("✅ [PUT /products/:id] Uploaded new images:", images);
     }
 
-    if (updateData.price) updateData.price = Number(updateData.price);
-    if (updateData.originalPrice) updateData.originalPrice = Number(updateData.originalPrice);
-    if (updateData.rating) updateData.rating = Number(updateData.rating);
+    // features normalization (same logic as create)
+    if (updateData.features !== undefined && updateData.features !== null && updateData.features !== "") {
+      if (!Array.isArray(updateData.features)) {
+        try {
+          const maybe = JSON.parse(updateData.features);
+          if (Array.isArray(maybe)) {
+            updateData.features = maybe.map(String).map(f => f.trim()).filter(Boolean);
+          } else {
+            updateData.features = String(updateData.features).split(",").map(f => f.trim()).filter(Boolean);
+          }
+        } catch {
+          updateData.features = String(updateData.features).split(",").map(f => f.trim()).filter(Boolean);
+        }
+      } else {
+        updateData.features = updateData.features.map(String).map(f => f.trim()).filter(Boolean);
+      }
+    }
 
-    console.log("💾 [PUT /products/:id] Updating database record...");
-    const updatedProduct = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true });
-    console.log("✅ [PUT /products/:id] Update complete:", updatedProduct?._id);
+    // numeric conversions: explicit checks so 0 is accepted
+    if (updateData.price !== undefined && updateData.price !== "") updateData.price = Number(updateData.price);
+    if (updateData.originalPrice !== undefined && updateData.originalPrice !== "") updateData.originalPrice = Number(updateData.originalPrice);
+    if (updateData.rating !== undefined && updateData.rating !== "") updateData.rating = Number(updateData.rating);
+    if (updateData.discountPercent !== undefined && updateData.discountPercent !== "") updateData.discountPercent = Number(updateData.discountPercent);
 
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    );
+
+    if (!updatedProduct) return res.status(404).json({ message: "Product not found" });
+
+    console.log("✅ Product updated:", updatedProduct._id, "discountPercent:", updatedProduct.discountPercent, "features:", updatedProduct.features);
     res.status(200).json(updatedProduct);
   } catch (error) {
-    console.error("❌ [PUT /products/:id] Error:", error.message);
-    res.status(500).json({ message: error.message });
+    console.error("❌ [UPDATE PRODUCT] Error:", error);
+    res.status(500).json({ message: error.message || String(error) });
   }
 });
+
+
 
 // ---- DELETE PRODUCT ----
 router.delete("/:id", isAdmin, async (req, res) => {
@@ -201,13 +296,17 @@ router.get("/", async (req, res) => {
   try {
     const products = await Product.find();
     console.log(`✅ [GET /products] Found ${products.length} products`);
+
+    // Log how many have discount
+    const discountedCount = products.filter(p => Number(p.discountPercent) > 0).length;
+    console.log(`💰 Discounted products count: ${discountedCount}`);
+
     res.status(200).json(products);
   } catch (error) {
     console.error("❌ [GET /products] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
-
 // ---- GET SINGLE PRODUCT ----
 router.get("/:id", async (req, res) => {
   console.log("📥 [GET /products/:id] Fetch single product request:", req.params.id);

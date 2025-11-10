@@ -6,39 +6,38 @@ const productSchema = new mongoose.Schema(
     category: { 
       type: String, 
       required: true, 
-    enum: [
-  "CCTV & Security",                 // access control, security systems
-  "Networking Devices",              // routers, switches, cables
-  "Computers & Laptops",             // desktops, laptops
-  "Servers & Storage",               // NAS, servers, virtualization
-  "Software Solutions",              // ERP, CRM, productivity software
-  "Custom Software Development",     // web, mobile, enterprise apps
-  "Cybersecurity Tools",             // antivirus, firewalls, data encryption
-  "Digital Transformation Tools",    // IoT, automation, business process
-  "Telecom Equipment",               // phones, VoIP, PBX
-  "IT Infrastructure Solutions",     // network design, data centers
-  "Cloud & Hosting Services",        // cloud integration, hosting plans
-  "IT Sales and Deployment",         // sales, deployment of IT equipment
-  "Inventory Solutions",             // stock management, barcode integration
-  "Access Control Solutions",        // facial recognition, time attendance
-  "Tracking Solutions",              // vehicle transit, route planning
-  "Smart Home Automation",           // smart sensors, smart locks
-  "Power & Backup Solutions",        // UPS, generators, solar panels
-  "Printers & Scanners",             // office devices
-  "All Products"                     // catch-all
-]
+      enum: [
+        "CCTV & Security",
+        "Networking Devices",
+        "Computers & Laptops",
+        "Servers & Storage",
+        "Software Solutions",
+        "Custom Software Development",
+        "Cybersecurity Tools",
+        "Digital Transformation Tools",
+        "Telecom Equipment",
+        "IT Infrastructure Solutions",
+        "Cloud & Hosting Services",
+        "IT Sales and Deployment",
+        "Inventory Solutions",
+        "Access Control Solutions",
+        "Tracking Solutions",
+        "Smart Home Automation",
+        "Power & Backup Solutions",
+        "Printers & Scanners",
+        "All Products"
+      ]
     },
     desc: { type: String, required: true },
-    features: [{ type: String }],
+     features: { type: [String], default: [] },        // explicit default
     price: { type: Number, required: true },
-    originalPrice: { type: Number }, // optional, for discounts
-    images: [{ 
-  id: String, 
-  url: String 
-}],
-    rating: { type: Number, default: 4, min: 1, max: 5 }, // ⭐ rating between 1-5
+     originalPrice: { type: Number, default: 0 },
+    discountPercent: { type: Number, default: 0 },    // explicit default
+    images: [{ id: String, url: String }],
+    rating: { type: Number, default: 4, min: 1, max: 5 },
+    wishlistedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // track users who wishlisted this
   },
-  { timestamps: true } // to know when the product was uploaded
+  { timestamps: true }
 );
 
 const Product = mongoose.model("Product", productSchema);
