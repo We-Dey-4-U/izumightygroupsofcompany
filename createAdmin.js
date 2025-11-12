@@ -1,9 +1,7 @@
-// Load environment variables
 require("dotenv").config({ path: __dirname + "/.env" });
-
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
-//const { User } = require("./models/User");
+const { User } = require("./models/user"); // Make sure your User model is exported
 
 // Safety check
 if (!process.env.CONNECTION_STRING) {
@@ -11,43 +9,63 @@ if (!process.env.CONNECTION_STRING) {
   process.exit(1);
 }
 
-console.log("Mongo URI:", process.env.CONNECTION_STRING);
+// Users to create
+const usersToCreate = [
+  {
+    name: "Admin User",
+    email: "admintechwire@example.com",
+    password: "Admin@123",
+    role: "admin", // will map to isAdmin
+  },
+  {
+    name: "Staff User",
+    email: "staff@example.com",
+    password: "Staff@123",
+    role: "staff", // will map to isStaff
+  },
+  {
+    name: "Regular User",
+    email: "user@example.com",
+    password: "User@123",
+    role: "user", // default user
+  },
+];
 
-const createAdmin = async () => {
+const createUsers = async () => {
   try {
-    // Connect to MongoDB
     await mongoose.connect(process.env.CONNECTION_STRING, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
     console.log("Connected to MongoDB");
 
-    // Check if admin already exists
-    const existingAdmin = await User.findOne({ email: "admin@example.com" });
-    if (existingAdmin) {
-      console.log("Admin already exists:", existingAdmin.email);
-      process.exit(0);
+    for (const u of usersToCreate) {
+      const existing = await User.findOne({ email: u.email });
+      if (existing) {
+        console.log(`${u.role} already exists: ${u.email}`);
+        continue;
+      }
+
+      const hashedPassword = await bcrypt.hash(u.password, 10);
+
+      const newUser = new User({
+        name: u.name,
+        email: u.email,
+        password: hashedPassword,
+        isAdmin: u.role === "admin",
+        isStaff: u.role === "staff",
+      });
+
+      await newUser.save();
+      console.log(`Created ${u.role}: ${newUser.email}`);
     }
 
-    // Hash the password
-    const hashedPassword = await bcrypt.hash("Admin@123", 10);
-
-    // Create new admin user
-    const adminUser = new User({
-      name: "Admin User",
-      email: "admin@example.com",
-      password: hashedPassword,
-      isAdmin: true,
-    });
-
-    await adminUser.save();
-    console.log("Admin user created successfully:", adminUser);
-
+    console.log("User seeding complete!");
     process.exit(0);
   } catch (err) {
-    console.error("Error creating admin user:", err);
+    console.error("Error creating users:", err);
     process.exit(1);
   }
 };
 
-createAdmin();
+createUsers();

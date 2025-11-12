@@ -8,6 +8,7 @@ const generateAuthToken = (user) => {
       name: user.name,
       email: user.email,
       isAdmin: user.isAdmin,
+      isStaff: user.isStaff || false, // ✅ add staff flag safely
     },
     jwtSecretKey
   );

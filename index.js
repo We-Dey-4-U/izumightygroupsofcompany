@@ -8,9 +8,12 @@ const productsRoute = require("./routes/products");
 const users = require("./routes/users");
 const orders = require("./routes/orders");
 const products = require("./products");
-
+const reportsRoute = require("./routes/reports");
 const prerender = require("prerender-node");
 require("dotenv").config();
+const expensesRoute = require("./routes/expenses");
+const attendanceRoutes = require("./routes/attendanceRoutes");
+const analyticsRoutes = require("./routes/analyticsRoutes");
 
 const app = express();
 
@@ -31,6 +34,12 @@ app.use("/api/login", login);
 app.use("/api/products", productsRoute);
 app.use("/api/users", users);
 app.use("/api/orders", orders);
+app.use("/api/reports", reportsRoute);
+app.use("/api/expenses", expensesRoute);
+app.use("/api/attendance", attendanceRoutes);
+app.use("/api/analytics", analyticsRoutes);
+
+
 
 // Base routes
 app.get("/", (req, res) => {

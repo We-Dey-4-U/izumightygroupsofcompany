@@ -1,13 +1,13 @@
 const jwt = require("jsonwebtoken");
-//we check if the user is login or not
+
+// ====== Verify Token ======
 const auth = (req, res, next) => {
   const token = req.header("x-auth-token");
-  if (!token)
-    return res.status(401).send("Access denied. Not authenticated...");
+  if (!token) return res.status(401).send("Access denied. Not authenticated...");
+
   try {
     const jwtSecretKey = process.env.JWT_SECRET_KEY;
     const decoded = jwt.verify(token, jwtSecretKey);
-
     req.user = decoded;
     next();
   } catch (ex) {
@@ -15,7 +15,7 @@ const auth = (req, res, next) => {
   }
 };
 
-// For User Profile(access profile) currently login user tring to access their profile
+// ====== Check if same user or admin =====
 const isUser = (req, res, next) => {
   auth(req, res, () => {
     if (req.user._id === req.params.id || req.user.isAdmin) {
@@ -26,7 +26,7 @@ const isUser = (req, res, next) => {
   });
 };
 
-// For Admin(checking if the user is admin or not)
+// ====== Check if Admin ======
 const isAdmin = (req, res, next) => {
   auth(req, res, () => {
     if (req.user.isAdmin) {
@@ -37,4 +37,15 @@ const isAdmin = (req, res, next) => {
   });
 };
 
-module.exports = { auth, isUser, isAdmin };
+// ====== Check if Staff ======
+const isStaff = (req, res, next) => {
+  auth(req, res, () => {
+    if (req.user.isStaff || req.user.isAdmin) {
+      next();
+    } else {
+      res.status(403).send("Access denied. Only staff can perform this action.");
+    }
+  });
+};
+
+module.exports = { auth, isUser, isAdmin, isStaff };
