@@ -22,11 +22,24 @@ prerender.set('prerenderToken', process.env.PRERENDER_TOKEN);
 app.use(prerender);
 
 // ✅ CORS configuration
-app.use(cors({
-  origin: "https://techwireict.vercel.app", // allow your frontend domain
+const frontendURL = "https://techwireict.vercel.app";
+
+// Allow all origins in development, only frontendURL in production
+const corsOptions = {
+  origin: process.env.NODE_ENV === "development" ? "*" : frontendURL,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // handle preflight
+
+// ✅ Log CORS requests
+app.use((req, res, next) => {
+  console.log(`CORS check: ${req.method} ${req.url}`);
+  next();
+});
 
 // Parse JSON requests
 app.use(express.json());
