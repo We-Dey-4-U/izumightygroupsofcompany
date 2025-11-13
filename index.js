@@ -31,14 +31,11 @@ const allowedOrigins = [
   /\.vercel\.app$/,   // Allow all vercel preview deployments
 ];
 
+
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // Allow Postman, curl, etc.
-
-    if (
-      allowedOrigins.includes(origin) ||
-      /\.vercel\.app$/.test(origin) // Allow any *.vercel.app
-    ) {
+    if (!origin) return callback(null, true); // allow Postman/curl
+    if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
       callback(null, true);
     } else {
       console.log("❌ BLOCKED ORIGIN:", origin);
@@ -46,7 +43,7 @@ const corsOptions = {
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"], // ✅ add x-auth-token
   credentials: true,
 };
 
