@@ -254,7 +254,14 @@ router.get("/summary/monthly", isAdmin, async (req, res) => {
       },
       { $sort: { "_id": 1 } },
     ]);
-    res.status(200).json(summary);
+
+    // Format amounts in Naira
+    const formattedSummary = summary.map(item => ({
+      month: item._id,
+      totalAmount: `₦${item.totalAmount.toLocaleString("en-NG")}`, // ✅ Naira formatting
+    }));
+
+    res.status(200).json(formattedSummary);
   } catch (error) {
     console.error("❌ [MONTHLY SUMMARY] Error:", error.message);
     res.status(500).json({ message: error.message });

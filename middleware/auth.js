@@ -48,4 +48,17 @@ const isStaff = (req, res, next) => {
   });
 };
 
-module.exports = { auth, isUser, isAdmin, isStaff };
+
+
+// ====== Check if Super Stakeholder =====
+const isSuperStakeholder = (req, res, next) => {
+  auth(req, res, () => {
+    if (req.user.isSuperStakeholder || req.user.isAdmin) {
+      next();
+    } else {
+      res.status(403).send("Access denied. Only super stakeholders can perform this action.");
+    }
+  });
+};
+
+module.exports = { auth, isUser, isAdmin, isStaff, isSuperStakeholder };

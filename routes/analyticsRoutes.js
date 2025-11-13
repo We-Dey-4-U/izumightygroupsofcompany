@@ -1,17 +1,21 @@
 // routes/analyticsRoutes.js
 const express = require("express");
 const router = express.Router();
+const moment = require("moment");
+const { auth, isAdmin, isStaff, isSuperStakeholder } = require("../middleware/auth");
 
-
+// ✅ Import models properly
 const { Report } = require("../models/Report");
 const { Expense } = require("../models/Expense");
-const Attendance = require("../models/Attendance"); // your Attendance model already exports directly
+const Attendance = require("../models/Attendance");
 const { User } = require("../models/user");
-const { isAdmin } = require("../middleware/auth");
-const moment = require("moment");
-/* -------------------------------
-   1️⃣ WEEKLY REPORT SUBMISSION RATE
----------------------------------- */
+const { Product } = require("../models/product");
+const Order = require("../models/order");
+
+
+// -----------------------------
+// WEEKLY REPORT SUBMISSION RATE
+// -----------------------------
 router.get("/reports-summary", isAdmin, async (req, res) => {
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
@@ -21,10 +25,16 @@ router.get("/reports-summary", isAdmin, async (req, res) => {
     const submittedReports = await Report.find({
       weekEnding: { $gte: startOfWeek, $lte: endOfWeek },
     });
+
     const submittedCount = submittedReports.length;
     const pendingCount = totalStaff - submittedCount;
 
-    // Top performing department
+    // Calculate actual submission rate percentage
+    const submissionRate = totalStaff > 0 
+      ? ((submittedCount / totalStaff) * 100).toFixed(2) 
+      : 0;
+
+    // Top department by average performance
     const topDept = await Report.aggregate([
       { $match: { weekEnding: { $gte: startOfWeek, $lte: endOfWeek } } },
       {
@@ -53,7 +63,7 @@ router.get("/reports-summary", isAdmin, async (req, res) => {
       totalStaff,
       submittedCount,
       pendingCount,
-      submissionRate: ((submittedCount / totalStaff) * 100).toFixed(2),
+      submissionRate: Number(submissionRate), // send numeric percentage
       topDepartment: topDept[0]?._id || "N/A",
     });
   } catch (error) {
@@ -63,26 +73,42 @@ router.get("/reports-summary", isAdmin, async (req, res) => {
 });
 
 
-/* -------------------------------
-   5️⃣ ALL-TIME OVERVIEW (Totals)
----------------------------------- */
+
+// -----------------------------
+// 2️⃣ ALL-TIME OVERVIEW (Totals)
+// -----------------------------
 router.get("/alltime-summary", isAdmin, async (req, res) => {
   try {
-    const [totalUsers, totalProducts, totalOrders, totalEarnings] =
-      await Promise.all([
-        User.countDocuments({}), // ✅ works now
-        require("../models/product").Product.countDocuments({}),
-        require("../models/order").Order.countDocuments({}),
-        require("../models/order").Order.aggregate([
-          { $group: { _id: null, total: { $sum: "$totalAmount" } } },
-        ]),
-      ]);
+    const [totalUsers, totalProducts, totalOrders, totalEarnings] = await Promise.all([
+      User.countDocuments({}),
+      Product.countDocuments({}),
+      Order.countDocuments({}),
+      Order.aggregate([{ $group: { _id: null, total: { $sum: "$total" } } }]),
+    ]);
+
+    // Previous totals (previous month)
+    const startPrevMonth = moment().subtract(1, "month").startOf("month").toDate();
+    const endPrevMonth = moment().subtract(1, "month").endOf("month").toDate();
+
+    const [prevUsers, prevProducts, prevOrders, prevEarnings] = await Promise.all([
+      User.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
+      Product.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
+      Order.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
+      Order.aggregate([
+        { $match: { createdAt: { $lt: moment().startOf("month").toDate() } } },
+        { $group: { _id: null, total: { $sum: "$total" } } },
+      ]),
+    ]);
 
     res.status(200).json({
       users: totalUsers || 0,
+      prevUsers: prevUsers || 0,
       products: totalProducts || 0,
+      prevProducts: prevProducts || 0,
       orders: totalOrders || 0,
+      prevOrders: prevOrders || 0,
       earnings: totalEarnings[0]?.total || 0,
+      prevEarnings: prevEarnings[0]?.total || 0,
     });
   } catch (error) {
     console.error("❌ All-time summary error:", error.message);
@@ -90,30 +116,23 @@ router.get("/alltime-summary", isAdmin, async (req, res) => {
   }
 });
 
-
-/* -------------------------------
-   2️⃣ ATTENDANCE SUMMARY (Weekly)
----------------------------------- */
+// -----------------------------
+// 3️⃣ ATTENDANCE SUMMARY (Weekly)
+// -----------------------------
 router.get("/attendance-summary", isAdmin, async (req, res) => {
   try {
     const startOfWeek = moment().startOf("isoWeek");
-    const endOfWeek = moment().endOf("isoWeek");
-
     const attendanceTrend = [];
+
     for (let i = 0; i < 7; i++) {
-      const day = moment(startOfWeek).add(i, "days");
-      const records = await Attendance.find({ date: day.format("YYYY-MM-DD") });
+      const day = moment(startOfWeek).add(i, "days").format("YYYY-MM-DD");
+      const records = await Attendance.find({ date: day });
 
       const present = records.filter((r) => r.timeIn).length;
-      const absent = 50 - present; // adjust 50 to total staff
+      const absent = 50 - present;
       const late = records.filter((r) => moment(r.timeIn).hour() > 9).length;
 
-      attendanceTrend.push({
-        date: day.format("YYYY-MM-DD"),
-        present,
-        absent,
-        late,
-      });
+      attendanceTrend.push({ date: day, present, absent, late });
     }
 
     res.status(200).json({ weeklyTrend: attendanceTrend });
@@ -123,12 +142,9 @@ router.get("/attendance-summary", isAdmin, async (req, res) => {
   }
 });
 
-/* -------------------------------
-   3️⃣ EXPENSES SUMMARY (Weekly & Monthly)
----------------------------------- */
-/* -------------------------------
-   3️⃣ EXPENSES SUMMARY (Weekly & Monthly)
----------------------------------- */
+// -----------------------------
+// 4️⃣ EXPENSES SUMMARY
+// -----------------------------
 router.get("/expenses-summary", isAdmin, async (req, res) => {
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
@@ -136,43 +152,22 @@ router.get("/expenses-summary", isAdmin, async (req, res) => {
     const startOfMonth = moment().startOf("month").toDate();
     const endOfMonth = moment().endOf("month").toDate();
 
-    // Separate Income and Expense totals
     const [weeklyExpense, weeklyIncome, monthlyExpense, monthlyIncome, topCategories] =
       await Promise.all([
         Expense.aggregate([
-          {
-            $match: {
-              dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
-              type: "Expense",
-            },
-          },
+          { $match: { dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek }, type: "Expense" } },
           { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
         ]),
         Expense.aggregate([
-          {
-            $match: {
-              dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
-              type: "Income",
-            },
-          },
+          { $match: { dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek }, type: "Income" } },
           { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
         ]),
         Expense.aggregate([
-          {
-            $match: {
-              dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-              type: "Expense",
-            },
-          },
+          { $match: { dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth }, type: "Expense" } },
           { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
         ]),
         Expense.aggregate([
-          {
-            $match: {
-              dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-              type: "Income",
-            },
-          },
+          { $match: { dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth }, type: "Income" } },
           { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
         ]),
         Expense.aggregate([
@@ -188,7 +183,10 @@ router.get("/expenses-summary", isAdmin, async (req, res) => {
       weeklyIncome: weeklyIncome[0]?.totalAmount || 0,
       monthlyExpenses: monthlyExpense[0]?.totalAmount || 0,
       monthlyIncome: monthlyIncome[0]?.totalAmount || 0,
-      topCategories,
+      topCategories: topCategories.map((c) => ({
+        category: c._id,
+        total: c.total,
+      })),
     });
   } catch (error) {
     console.error("❌ Expenses Summary Error:", error.message);
@@ -196,12 +194,13 @@ router.get("/expenses-summary", isAdmin, async (req, res) => {
   }
 });
 
-/* -------------------------------
-   4️⃣ STAFF PERFORMANCE TREND
----------------------------------- */
+// -----------------------------
+// 5️⃣ STAFF PERFORMANCE TREND
+// -----------------------------
 router.get("/performance-trend", isAdmin, async (req, res) => {
   try {
     const last6Weeks = [];
+
     for (let i = 5; i >= 0; i--) {
       const start = moment().subtract(i, "weeks").startOf("isoWeek").toDate();
       const end = moment().subtract(i, "weeks").endOf("isoWeek").toDate();
@@ -211,11 +210,16 @@ router.get("/performance-trend", isAdmin, async (req, res) => {
         reports.length > 0
           ? reports.reduce((sum, r) => {
               switch (r.performanceRating) {
-                case "Excellent": return sum + 4;
-                case "Good": return sum + 3;
-                case "Fair": return sum + 2;
-                case "Poor": return sum + 1;
-                default: return sum;
+                case "Excellent":
+                  return sum + 4;
+                case "Good":
+                  return sum + 3;
+                case "Fair":
+                  return sum + 2;
+                case "Poor":
+                  return sum + 1;
+                default:
+                  return sum;
               }
             }, 0) / reports.length
           : 0;
@@ -230,6 +234,55 @@ router.get("/performance-trend", isAdmin, async (req, res) => {
   } catch (error) {
     console.error("❌ Performance Trend Error:", error.message);
     res.status(500).json({ message: error.message });
+  }
+});
+
+// -----------------------------
+// 6️⃣ WEEKLY EARNINGS (Last 7 Days)
+// -----------------------------
+router.get("/week-earnings", isAdmin, async (req, res) => {
+  try {
+    const startOfWeek = moment().startOf("isoWeek").toDate();
+    const endOfWeek = moment().endOf("isoWeek").toDate();
+
+    const earnings = await Order.aggregate([
+      { $match: { createdAt: { $gte: startOfWeek, $lte: endOfWeek } } },
+      { $group: { _id: { $dayOfWeek: "$createdAt" }, total: { $sum: "$total" } } },
+      { $sort: { _id: 1 } },
+    ]);
+
+    res.status(200).json(
+      earnings.map((e) => ({
+        day: e._id,
+        total: e.total,
+      }))
+    );
+  } catch (error) {
+    console.error("❌ Week Earnings Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// -----------------------------
+// 7️⃣ EXPENSE CATEGORY ANALYTICS (Super Stakeholder)
+// -----------------------------
+router.get("/expenses-category-analytics", isSuperStakeholder, async (req, res) => {
+  try {
+    const summary = await Expense.aggregate([
+      { $group: { _id: "$expenseCategory", totalAmount: { $sum: "$amount" }, count: { $sum: 1 } } },
+      { $sort: { totalAmount: -1 } },
+    ]);
+
+    res.status(200).json(
+      summary.map((s) => ({
+        category: s._id,
+        totalAmount: s.totalAmount,
+        count: s.count,
+      }))
+    );
+  } catch (err) {
+    console.error("❌ [CATEGORY ANALYTICS] Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
 

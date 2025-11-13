@@ -57,6 +57,7 @@ const expenseSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+//<Route path="/shop" element={<Home />} />v
 
 const Expense = mongoose.model("Expense", expenseSchema);
 exports.Expense = Expense;

@@ -17,7 +17,7 @@ const analyticsRoutes = require("./routes/analyticsRoutes");
 
 const app = express();
 
-// Optional: set your token if you use prerender.io
+// Optional: set your token if you use prerender.i
 // (you’ll get it when you sign up for a free account)
 prerender.set('prerenderToken', process.env.PRERENDER_TOKEN);
 

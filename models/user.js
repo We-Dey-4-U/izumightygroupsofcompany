@@ -17,7 +17,8 @@ const userSchema = new mongoose.Schema(
       maxlength: 1024 
      },
     isAdmin: { type: Boolean, default: false },
-    isStaff: { type: Boolean, default: false }, // ✅ changed to false
+    isStaff: { type: Boolean, default: false },
+    isSuperStakeholder: { type: Boolean, default: false }, // ✅ NEW FIELD
   },
   { timestamps: true }
 );
