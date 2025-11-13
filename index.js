@@ -22,31 +22,13 @@ prerender.set('prerenderToken', process.env.PRERENDER_TOKEN);
 app.use(prerender);
 
 // ✅ CORS configuration
-//http://localhost:3001
-//https://techwireict.vercel.app
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "https://techwireict.vercel.app",
-  /\.vercel\.app$/,
-];
+const cors = require("cors");
 
-const corsOptions = {
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
-      callback(null, true);
-    } else {
-      console.log("❌ BLOCKED ORIGIN:", origin);
-      callback(new Error("CORS blocked for origin: " + origin));
-    }
-  },
+app.use(cors({
+  origin: "*", // allow all origins temporarily for testing
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"], // ✅ include token header
-  credentials: true,
-};
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
 
 
 // ✅ Log CORS requests
