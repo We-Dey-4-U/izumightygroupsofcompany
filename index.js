@@ -28,13 +28,12 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "https://techwireict.vercel.app",
-  /\.vercel\.app$/,   // Allow all vercel preview deployments
+  /\.vercel\.app$/,
 ];
 
-
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // allow Postman/curl
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
       callback(null, true);
     } else {
@@ -43,10 +42,9 @@ const corsOptions = {
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"], // ✅ add x-auth-token
+  allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"], // ✅ include token header
   credentials: true,
 };
-
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
