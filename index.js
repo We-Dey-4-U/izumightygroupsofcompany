@@ -28,16 +28,20 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "https://techwireict.vercel.app",
+  /\.vercel\.app$/,   // Allow all vercel preview deployments
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman)
-    if (!origin) return callback(null, true);
+    if (!origin) return callback(null, true); // Allow Postman, curl, etc.
 
-    if (allowedOrigins.includes(origin)) {
+    if (
+      allowedOrigins.includes(origin) ||
+      /\.vercel\.app$/.test(origin) // Allow any *.vercel.app
+    ) {
       callback(null, true);
     } else {
+      console.log("❌ BLOCKED ORIGIN:", origin);
       callback(new Error("CORS blocked for origin: " + origin));
     }
   },
