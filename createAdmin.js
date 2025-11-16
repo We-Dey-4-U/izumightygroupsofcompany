@@ -13,7 +13,7 @@ if (!process.env.CONNECTION_STRING) {
 const usersToCreate = [
   {
     name: "Admin User",
-    email: "admintechwire@example.com",
+    email: "admint@example.com",
     password: "Admin@123",
     role: "admin", // will map to isAdmin
   },
@@ -22,6 +22,12 @@ const usersToCreate = [
     email: "staff@example.com",
     password: "Staff@123",
     role: "staff", // will map to isStaff
+  },
+   {
+    name: "Stakeholder",
+    email: "Stakeholder@example.com",
+    password: "Stakeholder@123",
+    role: "Stakeholder", // default user
   },
   {
     name: "Regular User",
