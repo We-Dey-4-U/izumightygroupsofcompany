@@ -27,7 +27,7 @@ const usersToCreate = [
     name: "Stakeholder",
     email: "Stakeholder@example.com",
     password: "Stakeholder@123",
-    role: "Stakeholder", // default user
+    role: "Stakeholder", // default user 
   },
   {
     name: "Regular User",

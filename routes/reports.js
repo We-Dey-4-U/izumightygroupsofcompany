@@ -10,6 +10,7 @@ router.get("/", isAdmin, async (req, res) => {
     const reports = await Report.find()
       .sort({ date: -1 })
       .populate("submittedBy", "name email");
+
     console.log(`✅ [GET /reports] Returning ${reports.length} reports`);
     res.status(200).json(reports);
   } catch (error) {
@@ -18,13 +19,13 @@ router.get("/", isAdmin, async (req, res) => {
   }
 });
 
-// ----- GET SINGLE REPORT ----- (Admins or the staff who submitted)
+// ----- GET SINGLE REPORT -----
 router.get("/:id", auth, async (req, res) => {
-  console.log(`📌 [GET /reports/${req.params.id}] Request by: ${req.user?.email}`);
   try {
-    const report = await Report.findById(req.params.id).populate("submittedBy", "name email");
+    const report = await Report.findById(req.params.id)
+      .populate("submittedBy", "name email");
+
     if (!report) {
-      console.log("⚠️ Report not found");
       return res.status(404).json({ message: "Report not found" });
     }
 
@@ -33,11 +34,9 @@ router.get("/:id", auth, async (req, res) => {
       report.submittedBy._id.toString() !== req.user._id &&
       !req.user.isAdmin
     ) {
-      console.log("❌ Access denied for", req.user?.email);
       return res.status(403).json({ message: "Access denied" });
     }
 
-    console.log("✅ Report fetched:", report._id);
     res.status(200).json(report);
   } catch (error) {
     console.error(`❌ [GET /reports/${req.params.id}] Error:`, error.message);
@@ -45,7 +44,6 @@ router.get("/:id", auth, async (req, res) => {
   }
 });
 
-// ----- CREATE REPORT ----- (Staff only)
 // ----- CREATE REPORT ----- (Staff only)
 router.post("/", isStaff, async (req, res) => {
   try {
@@ -60,6 +58,8 @@ router.post("/", isStaff, async (req, res) => {
       nextWeekTargets,
       supportNeeded,
       fileUploads,
+      rolePlayed,       // NEW FIELD
+      selfRating        // NEW FIELD
     } = req.body;
 
     if (!department || !designation || !weekEnding || !summary) {
@@ -80,8 +80,10 @@ router.post("/", isStaff, async (req, res) => {
       nextWeekTargets: nextWeekTargets || "",
       supportNeeded: supportNeeded || "",
       fileUploads: fileUploads || [],
-      supervisorComment: "",        // always empty initially
-      performanceRating: "Good",   // default value
+      supervisorComment: "",
+      performanceRating: "Good",
+      rolePlayed: rolePlayed || "",    // NEW
+      selfRating: selfRating || 5,     // NEW
       submittedBy: req.user._id,
     });
 
@@ -93,23 +95,22 @@ router.post("/", isStaff, async (req, res) => {
   }
 });
 
-
-
-
-// ----- UPDATE REPORT ----- (Staff can only update their own reports)
+// ----- UPDATE REPORT ----- (Admin OR Staff)
 router.put("/:id", auth, async (req, res) => {
   try {
     const report = await Report.findById(req.params.id);
     if (!report) return res.status(404).json({ message: "Report not found" });
 
     if (req.user.isAdmin) {
-      // Admin can update supervisorComment and performanceRating
+      // Admin can update supervisorComment & performanceRating only
       if (req.body.supervisorComment !== undefined)
         report.supervisorComment = req.body.supervisorComment;
+
       if (req.body.performanceRating !== undefined)
         report.performanceRating = req.body.performanceRating;
+
     } else if (req.user._id.toString() === report.submittedBy.toString()) {
-      // Staff can only update report content, not rating/comment
+      // Staff can update their own content including new fields
       const allowedFields = [
         "department",
         "designation",
@@ -121,10 +122,14 @@ router.put("/:id", auth, async (req, res) => {
         "nextWeekTargets",
         "supportNeeded",
         "fileUploads",
+        "rolePlayed",     // NEW FIELD
+        "selfRating"      // NEW FIELD
       ];
+
       allowedFields.forEach((field) => {
         if (req.body[field] !== undefined) report[field] = req.body[field];
       });
+
     } else {
       return res.status(403).json({ message: "Access denied" });
     }
@@ -137,22 +142,17 @@ router.put("/:id", auth, async (req, res) => {
   }
 });
 
-
 // ----- DELETE REPORT ----- (Admin only)
 router.delete("/:id", isAdmin, async (req, res) => {
-  console.log(`📌 [DELETE /reports/${req.params.id}] Delete attempt by admin: ${req.user?.email}`);
-
   try {
     const deletedReport = await Report.findByIdAndDelete(req.params.id);
     if (!deletedReport) {
-      console.log("⚠️ Report not found for deletion");
       return res.status(404).json({ message: "Report not found" });
     }
 
-    console.log("✅ Report deleted:", deletedReport._id);
     res.status(200).json({ message: "Report deleted successfully" });
   } catch (error) {
-    console.error(`❌ [DELETE /reports/${req.params.id}] Error:`, error.message);
+    console.error(`❌ [DELETE /reports/:id] Error:`, error.message);
     res.status(500).json({ message: error.message });
   }
 });

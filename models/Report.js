@@ -20,6 +20,17 @@ const reportSchema = new mongoose.Schema(
       enum: ["Excellent", "Good", "Fair", "Poor"],
       default: "Good",
     },
+      rolePlayed: {
+      type: String,
+      default: "",
+    },
+
+    selfRating: {
+      type: Number,
+      enum: [1,2,3,4,5,6,7,8,9,10], // user must pick from 1–10
+      required: true,
+      default: 5,
+    },
     submittedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   },
   { timestamps: true }
