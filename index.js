@@ -16,6 +16,7 @@ const attendanceRoutes = require("./routes/attendanceRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
 const employeeInfoRoutes = require("./routes/employeeInfoRoutes"); 
 const payrollRoutes = require("./routes/payroll"); // updated payroll router
+const inventoryRoutes = require("./routes/inventory");
 
 const app = express();
 
@@ -29,7 +30,7 @@ app.use(prerender);
 app.use(
   cors({
     origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT","PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -69,6 +70,7 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/employee-info", employeeInfoRoutes);
 app.use("/api/payrolls", payrollRoutes);
+app.use("/api/inventory", inventoryRoutes);
 
 /* -----------------------------------
    BASE ROUTES
