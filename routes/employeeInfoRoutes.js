@@ -5,7 +5,7 @@ const multer = require("multer");
 const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
-const { auth, isStaff, isAdmin } = require("../middleware/auth");
+const { auth, isStaff, isAdmin,isSubAdmin,isSuperStakeholder } = require("../middleware/auth");
 const EmployeeInfo = require("../models/EmployeeInfo");
 
 // ----------------------
@@ -139,7 +139,16 @@ router.post(
 
 
 // GET all employee info (admin)
-router.get("/all", auth, isAdmin, async (req, res) => {
+router.get("/all", auth, async (req, res) => {
+  // Block if NOT admin AND NOT subadmin AND NOT super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
   try {
     const allEmployees = await EmployeeInfo.find().populate(
       "user",
@@ -151,11 +160,25 @@ router.get("/all", auth, isAdmin, async (req, res) => {
   }
 });
 
+
+
 // GET logged-in staff's info
-router.get("/me", auth, isAdmin, isStaff, async (req, res) => {
+router.get("/me", auth, async (req, res) => {
+  // Block if NOT admin AND NOT staff AND NOT subadmin
+  if (
+    !req.user.isAdmin &&
+    !req.user.isStaff &&
+    !req.user.isSubAdmin
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
   try {
     const info = await EmployeeInfo.findOne({ user: req.user._id });
-    if (!info) return res.status(404).json({ message: "No employee info found" });
+
+    if (!info) {
+      return res.status(404).json({ message: "No employee info found" });
+    }
 
     res.status(200).json(info);
   } catch (err) {

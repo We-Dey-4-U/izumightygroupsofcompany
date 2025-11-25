@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const router = express.Router();
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth, isAdmin,isSuperStakeholder } = require("../middleware/auth");
 const Payroll = require("../models/Payroll");
 const { User } = require("../models/user");
 const { v4: uuidv4 } = require("uuid");
@@ -171,9 +171,21 @@ router.post("/generate", auth, isAdmin, async (req, res) => {
  * GET /all
  * Get all payrolls (Admin only)
  */
-router.get("/all", auth, isAdmin, async (req, res) => {
+router.get("/all", auth, async (req, res) => {
+  // Block if NOT admin AND NOT subadmin AND NOT super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
   try {
-    const payrolls = await Payroll.find().populate("employeeId", "name email");
+    const payrolls = await Payroll.find().populate(
+      "employeeId",
+      "name email"
+    );
+
     res.status(200).json(payrolls);
   } catch (err) {
     console.error(err);

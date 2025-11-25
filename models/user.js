@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema(
     isAdmin: { type: Boolean, default: false },
     isStaff: { type: Boolean, default: false },
     isSuperStakeholder: { type: Boolean, default: false }, // ✅ NEW FIELD
+     isSubAdmin: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

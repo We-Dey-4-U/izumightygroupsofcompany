@@ -1,11 +1,21 @@
 const express = require("express");
 const router = express.Router();
 const { Report } = require("../models/Report");
-const { auth, isAdmin, isStaff } = require("../middleware/auth");
+const { auth, isAdmin, isStaff,isSubAdmin,isSuperStakeholder } = require("../middleware/auth");
 
 // ----- GET ALL REPORTS ----- (Admins only)
-router.get("/", isAdmin, async (req, res) => {
-  console.log("📌 [GET /reports] Request received by admin:", req.user?.email);
+router.get("/", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /reports] Request received by:", req.user?.email);
+
   try {
     const reports = await Report.find()
       .sort({ date: -1 })

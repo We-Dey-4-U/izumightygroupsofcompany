@@ -49,6 +49,18 @@ const isStaff = (req, res, next) => {
 };
 
 
+// ====== Check if SubAdmin =====
+const isSubAdmin = (req, res, next) => {
+  auth(req, res, () => {
+    if (req.user.isSubAdmin || req.user.isAdmin) {
+      next();
+    } else {
+      res.status(403).send("Access denied. Only SubAdmins can perform this action.");
+    }
+  });
+};
+
+
 
 // ====== Check if Super Stakeholder =====
 const isSuperStakeholder = (req, res, next) => {
@@ -61,4 +73,4 @@ const isSuperStakeholder = (req, res, next) => {
   });
 };
 
-module.exports = { auth, isUser, isAdmin, isStaff, isSuperStakeholder };
+module.exports = { auth, isUser, isAdmin, isStaff, isSuperStakeholder,isSubAdmin };

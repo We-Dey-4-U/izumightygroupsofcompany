@@ -2,26 +2,46 @@
 const express = require("express");
 const router = express.Router();
 const moment = require("moment");
-const { auth, isAdmin, isStaff, isSuperStakeholder } = require("../middleware/auth");
+const { auth, isAdmin, isStaff, isSuperStakeholder,isSubAdmin } = require("../middleware/auth");
 
-// ✅ Import models properly
+// ✅ Import models properl
 const { Report } = require("../models/Report");
 const { Expense } = require("../models/Expense");
 const Attendance = require("../models/Attendance");
 const { User } = require("../models/user");
 const { Product } = require("../models/product");
+const Payroll = require("../models/Payroll");
+const EmployeeInfo = require("../models/EmployeeInfo");
+
+// -----------------------------
+// 2️⃣ ALL-TIME OVERVIEW (Totals)
+// -----------------------------
+const InventoryProduct = require("../models/InventoryProduct"); // ✅ new model
 const Order = require("../models/order");
 
 
 // -----------------------------
 // WEEKLY REPORT SUBMISSION RATE
 // -----------------------------
-router.get("/reports-summary", isAdmin, async (req, res) => {
+// WEEKLY REPORT SUBMISSION RATE
+router.get("/reports-summary", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/reports-summary] Requested by:", req.user?.email);
+
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
     const endOfWeek = moment().endOf("isoWeek").toDate();
 
     const totalStaff = await User.countDocuments({ isStaff: true });
+
     const submittedReports = await Report.find({
       weekEnding: { $gte: startOfWeek, $lte: endOfWeek },
     });
@@ -29,10 +49,10 @@ router.get("/reports-summary", isAdmin, async (req, res) => {
     const submittedCount = submittedReports.length;
     const pendingCount = totalStaff - submittedCount;
 
-    // Calculate actual submission rate percentage
-    const submissionRate = totalStaff > 0 
-      ? ((submittedCount / totalStaff) * 100).toFixed(2) 
-      : 0;
+    const submissionRate =
+      totalStaff > 0
+        ? ((submittedCount / totalStaff) * 100).toFixed(2)
+        : 0;
 
     // Top department by average performance
     const topDept = await Report.aggregate([
@@ -63,7 +83,7 @@ router.get("/reports-summary", isAdmin, async (req, res) => {
       totalStaff,
       submittedCount,
       pendingCount,
-      submissionRate: Number(submissionRate), // send numeric percentage
+      submissionRate: Number(submissionRate),
       topDepartment: topDept[0]?._id || "N/A",
     });
   } catch (error) {
@@ -73,15 +93,124 @@ router.get("/reports-summary", isAdmin, async (req, res) => {
 });
 
 
+// -----------------------------
+// EMPLOYEE SUMMARY
+// -----------------------------
+router.get("/employee-summary", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/employee-summary] Requested by:", req.user?.email);
+
+  try {
+    // Total employees
+    const totalEmployees = await EmployeeInfo.countDocuments();
+
+    // Optional: breakdown by department
+    const byDepartment = await EmployeeInfo.aggregate([
+      { $group: { _id: "$employment.department", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    // Optional: active vs inactive staff (assuming 'status' field exists)
+    const activeEmployees = await EmployeeInfo.countDocuments({ "employment.status": "Active" });
+    const inactiveEmployees = totalEmployees - activeEmployees;
+
+    res.status(200).json({
+      totalEmployees,
+      activeEmployees,
+      inactiveEmployees,
+      byDepartment,
+    });
+  } catch (error) {
+    console.error("❌ Employee Summary Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+
+
+// -----------------------------
+// PAYROLL SUMMARY
+// -----------------------------
+router.get("/payroll-summary", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/payroll-summary] Requested by:", req.user?.email);
+
+  try {
+    const startOfMonth = moment().startOf("month").toDate();
+    const endOfMonth = moment().endOf("month").toDate();
+
+    // Aggregate payroll for the current month
+    const payrolls = await Payroll.aggregate([
+      { $match: { createdAt: { $gte: startOfMonth, $lte: endOfMonth } } },
+      {
+        $group: {
+          _id: null,
+          totalGross: { $sum: "$grossSalary" },
+          totalNet: { $sum: "$netPay" },
+          avgNetPay: { $avg: "$netPay" },
+          employeeCount: { $addToSet: "$employeeId" }, // unique employees
+        },
+      },
+    ]);
+
+    const data = payrolls[0] || {
+      totalGross: 0,
+      totalNet: 0,
+      avgNetPay: 0,
+      employeeCount: [],
+    };
+
+    res.status(200).json({
+      totalGross: data.totalGross,
+      totalNet: data.totalNet,
+      avgNetPay: data.avgNetPay,
+      totalEmployeesPaid: data.employeeCount.length,
+    });
+  } catch (error) {
+    console.error("❌ Payroll Summary Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 
 // -----------------------------
 // 2️⃣ ALL-TIME OVERVIEW (Totals)
-// -----------------------------
-router.get("/alltime-summary", isAdmin, async (req, res) => {
+// ----------------------------
+
+
+router.get("/alltime-summary", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/alltime-summary] Requested by:", req.user?.email);
+
   try {
+    // Fetch totals in parallel
     const [totalUsers, totalProducts, totalOrders, totalEarnings] = await Promise.all([
       User.countDocuments({}),
-      Product.countDocuments({}),
+      InventoryProduct.countDocuments({}), // ✅ Use InventoryProduct
       Order.countDocuments({}),
       Order.aggregate([{ $group: { _id: null, total: { $sum: "$total" } } }]),
     ]);
@@ -92,7 +221,7 @@ router.get("/alltime-summary", isAdmin, async (req, res) => {
 
     const [prevUsers, prevProducts, prevOrders, prevEarnings] = await Promise.all([
       User.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
-      Product.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
+      InventoryProduct.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
       Order.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
       Order.aggregate([
         { $match: { createdAt: { $lt: moment().startOf("month").toDate() } } },
@@ -116,10 +245,23 @@ router.get("/alltime-summary", isAdmin, async (req, res) => {
   }
 });
 
+
+
 // -----------------------------
 // 3️⃣ ATTENDANCE SUMMARY (Weekly)
 // -----------------------------
-router.get("/attendance-summary", isAdmin, async (req, res) => {
+router.get("/attendance-summary", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/attendance-summary] Requested by:", req.user?.email);
+
   try {
     const startOfWeek = moment().startOf("isoWeek");
     const attendanceTrend = [];
@@ -129,7 +271,7 @@ router.get("/attendance-summary", isAdmin, async (req, res) => {
       const records = await Attendance.find({ date: day });
 
       const present = records.filter((r) => r.timeIn).length;
-      const absent = 50 - present;
+      const absent = 50 - present; // assuming 50 staff total
       const late = records.filter((r) => moment(r.timeIn).hour() > 9).length;
 
       attendanceTrend.push({ date: day, present, absent, late });
@@ -145,7 +287,18 @@ router.get("/attendance-summary", isAdmin, async (req, res) => {
 // -----------------------------
 // 4️⃣ EXPENSES SUMMARY
 // -----------------------------
-router.get("/expenses-summary", isAdmin, async (req, res) => {
+router.get("/expenses-summary", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/expenses-summary] Requested by:", req.user?.email);
+
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
     const endOfWeek = moment().endOf("isoWeek").toDate();
@@ -197,7 +350,18 @@ router.get("/expenses-summary", isAdmin, async (req, res) => {
 // -----------------------------
 // 5️⃣ STAFF PERFORMANCE TREND
 // -----------------------------
-router.get("/performance-trend", isAdmin, async (req, res) => {
+router.get("/performance-trend", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/performance-trend] Requested by:", req.user?.email);
+
   try {
     const last6Weeks = [];
 
@@ -240,7 +404,18 @@ router.get("/performance-trend", isAdmin, async (req, res) => {
 // -----------------------------
 // 6️⃣ WEEKLY EARNINGS (Last 7 Days)
 // -----------------------------
-router.get("/week-earnings", isAdmin, async (req, res) => {
+router.get("/week-earnings", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/week-earnings] Requested by:", req.user?.email);
+
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
     const endOfWeek = moment().endOf("isoWeek").toDate();
@@ -266,7 +441,18 @@ router.get("/week-earnings", isAdmin, async (req, res) => {
 // -----------------------------
 // 7️⃣ EXPENSE CATEGORY ANALYTICS (Super Stakeholder)
 // -----------------------------
-router.get("/expenses-category-analytics", isSuperStakeholder, async (req, res) => {
+router.get("/expenses-category-analytics", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/expenses-category-analytics] Requested by:", req.user?.email);
+
   try {
     const summary = await Expense.aggregate([
       { $group: { _id: "$expenseCategory", totalAmount: { $sum: "$amount" }, count: { $sum: 1 } } },

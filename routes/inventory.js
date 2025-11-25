@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 
 const InventoryProduct = require("../models/InventoryProduct");
 const StockMovement = require("../models/StockMovement");
@@ -109,7 +109,12 @@ router.post("/stock-out/:productId", auth, isAdmin, async (req, res) => {
 // -----------------------------------------
 // GET ALL PRODUCTS
 // -----------------------------------------
-router.get("/products", auth, isAdmin, async (req, res) => {
+router.get("/products", auth, async (req, res) => {
+  // ❌ Block if user is NOT admin AND NOT super stakeholder
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
   try {
     const products = await InventoryProduct.find().sort({ createdAt: -1 });
     res.status(200).json(products);
@@ -117,7 +122,6 @@ router.get("/products", auth, isAdmin, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
 // -----------------------------------------
 // GET STOCK HISTORY FOR A PRODUCT
 // -----------------------------------------

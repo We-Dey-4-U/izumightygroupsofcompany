@@ -6,7 +6,7 @@ const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 const { Expense } = require("../models/Expense");
-const { auth, isAdmin } = require("../middleware/auth");
+const { auth, isAdmin,isSuperStakeholder } = require("../middleware/auth");
 
 // ---------- Appwrite Setup Check ----------
 (async () => {
@@ -130,7 +130,11 @@ router.post("/", auth, upload.array("receipts"), async (req, res) => {
 });
 
 // ---------- GET ALL EXPENSES ----------
-router.get("/", isAdmin, async (req, res) => {
+router.get("/", auth, async (req, res) => {
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
   try {
     const expenses = await Expense.find().sort({ createdAt: -1 });
     res.status(200).json(expenses);
@@ -139,8 +143,9 @@ router.get("/", isAdmin, async (req, res) => {
   }
 });
 
+
 // ---------- GET SINGLE EXPENSE ----------
-router.get("/:id", isAdmin, async (req, res) => {
+router.get("/:id", isAdmin, isSuperStakeholder, async (req, res) => {
   try {
     const expense = await Expense.findById(req.params.id);
     if (!expense) return res.status(404).json({ message: "Expense not found" });
@@ -175,7 +180,7 @@ router.put("/:id", isAdmin, upload.array("receipts"), async (req, res) => {
 });
 
 // ---------- UPDATE STATUS ----------
-router.patch("/:id/status", async (req, res) => {
+router.patch("/:id/status", auth, async (req, res) => {
   try {
     const { status } = req.body;
 
@@ -184,22 +189,35 @@ router.patch("/:id/status", async (req, res) => {
     }
 
     const expense = await Expense.findById(req.params.id);
-
     if (!expense) return res.status(404).json({ message: "Expense not found" });
+
+    // Only SuperStakeholder can approve
+    if (status === "Approved") {
+      if (!req.user.isSuperStakeholder) {
+        return res.status(403).json({ message: "Only SuperStakeholder can approve expenses" });
+      }
+      expense.approvedBy = req.user.name;
+    }
+
+    // Decline can be done by admin or super stakeholder
+    if (status === "Declined") {
+      if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
+        return res.status(403).json({ message: "Not authorized to decline expenses" });
+      }
+      expense.approvedBy = req.user.name;
+    }
 
     expense.status = status;
 
-    if (status === "Approved") {
-      expense.approvedBy = req.user?.name || "CEO";
-    }
-
     const updated = await expense.save();
     res.status(200).json(updated);
-
   } catch (error) {
+    console.error("❌ [UPDATE EXPENSE STATUS] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
+
+
 
 // ---------- DELETE EXPENSE ----------
 router.delete("/:id", isAdmin, async (req, res) => {
@@ -232,7 +250,7 @@ router.delete("/:id", isAdmin, async (req, res) => {
 });
 
 // ---------- MONTHLY SUMMARY ----------
-router.get("/summary/monthly", isAdmin, async (req, res) => {
+router.get("/summary/monthly", isAdmin, isSuperStakeholder, async (req, res) => {
   try {
     const summary = await Expense.aggregate([
       {

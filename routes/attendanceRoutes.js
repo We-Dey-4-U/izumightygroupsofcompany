@@ -5,7 +5,7 @@ const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 const Attendance = require("../models/Attendance");
-const { isAdmin } = require("../middleware/auth");
+const { isAdmin,isSubAdmin } = require("../middleware/auth");
 const router = express.Router();
 
 /* -------------------------------
@@ -100,7 +100,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 /* -------------------------------
    GET ALL ATTENDANCE RECORDS (ADMIN ONLY)
 ---------------------------------- */
-router.get("/admin", isAdmin, async (req, res) => {
+router.get("/admin", isAdmin, isSubAdmin, async (req, res) => {
   console.log("➡️ GET /attendance/admin hit by admin");
   try {
     const records = await Attendance.find().sort({ createdAt: -1 });
@@ -131,7 +131,7 @@ router.get("/all", async (req, res) => {
 /* -------------------------------
    GET ALL ATTENDANCE RECORDS (ADMIN ONLY)
 ---------------------------------- */
-router.get("/", isAdmin, async (req, res) => {
+router.get("/", isAdmin, isSubAdmin, async (req, res) => {
   console.log("➡️ GET /attendance hit by admin");
   try {
     const records = await Attendance.find().sort({ createdAt: -1 });
@@ -194,7 +194,7 @@ router.put("/:id/timeout", async (req, res) => {
 /* -------------------------------
    5️⃣ ALL-TIME OVERVIEW (Totals)
 ---------------------------------- */
-router.get("/alltime-summary", isAdmin, async (req, res) => {
+router.get("/alltime-summary", isAdmin, isSubAdmin, async (req, res) => {
   try {
     // ✅ Get totals from MongoDB
     const [totalUsers, totalProducts, totalOrders, totalEarnings] =

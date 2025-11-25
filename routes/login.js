@@ -28,14 +28,15 @@ router.post("/", async (req, res) => {
 
   // Respond with user info
   res.status(200).json({
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    isAdmin: user.isAdmin,
-    isStaff: user.isStaff,
-    isSuperStakeholder: user.isSuperStakeholder, // ✅ included correctly
-    token,
-  });
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  isAdmin: user.isAdmin,
+  isStaff: user.isStaff,
+  isSuperStakeholder: user.isSuperStakeholder,
+  isSubAdmin: user.isSubAdmin, // ✅ Add this line
+  token,
+});
 });
 
 module.exports = router;
