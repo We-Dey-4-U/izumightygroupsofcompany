@@ -17,6 +17,7 @@ const analyticsRoutes = require("./routes/analyticsRoutes");
 const employeeInfoRoutes = require("./routes/employeeInfoRoutes"); 
 const payrollRoutes = require("./routes/payroll"); // updated payroll router
 const inventoryRoutes = require("./routes/inventory");
+const salesRoutes = require("./routes/salesRoutes");
 
 const app = express();
 
@@ -71,7 +72,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/employee-info", employeeInfoRoutes);
 app.use("/api/payrolls", payrollRoutes);
 app.use("/api/inventory", inventoryRoutes);
-
+app.use("/api/sales", salesRoutes);
 /* -----------------------------------
    BASE ROUTES
 -------------------------------------- */

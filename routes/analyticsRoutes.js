@@ -12,6 +12,7 @@ const { User } = require("../models/user");
 const { Product } = require("../models/product");
 const Payroll = require("../models/Payroll");
 const EmployeeInfo = require("../models/EmployeeInfo");
+const Sale = require("../models/Sale");   // ✅ Add Sale model
 
 // -----------------------------
 // 2️⃣ ALL-TIME OVERVIEW (Totals)
@@ -468,6 +469,37 @@ router.get("/expenses-category-analytics", auth, async (req, res) => {
     );
   } catch (err) {
     console.error("❌ [CATEGORY ANALYTICS] Error:", err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+
+// -----------------------------
+// 8️⃣ SALES TOTAL ANALYTICS (Sum)
+// -----------------------------
+router.get("/sales-total", auth, async (req, res) => {
+  // Allow ONLY admin, subadmin, or super stakeholder
+  if (
+    !req.user.isAdmin &&
+    !req.user.isSubAdmin &&
+    !req.user.isSuperStakeholder
+  ) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  console.log("📌 [GET /analytics/sales-total] Requested by:", req.user?.email);
+
+  try {
+    const totalSales = await Sale.aggregate([
+      { $group: { _id: null, total: { $sum: "$totalAmount" } } }
+    ]);
+
+    res.status(200).json({
+      totalSales: totalSales[0]?.total || 0
+    });
+  } catch (err) {
+    console.error("❌ Sales Analytics Error:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
