@@ -20,9 +20,11 @@ const reportSchema = new mongoose.Schema(
       enum: ["Excellent", "Good", "Fair", "Poor"],
       default: "Good",
     },
-      rolePlayed: {
+      // ✅ Role Played Enum
+    rolePlayed: {
       type: String,
-      default: "",
+      enum: ["Assisted", "Led", "Supervised Others", "Performed Alone"],
+      default: "", // Not required
     },
 
     selfRating: {

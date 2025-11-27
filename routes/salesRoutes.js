@@ -16,7 +16,7 @@ const generateSaleId = () => {
 router.post("/create", auth, async (req, res) => {
   try {
     const {
-      items,            // [{ productId, quantity, price }]
+      items,
       tax = 0,
       discount = 0,
       paymentMethod,
@@ -30,33 +30,67 @@ router.post("/create", auth, async (req, res) => {
 
     let subtotal = 0;
 
-    // Validate items + adjust stock
     for (const item of items) {
-      const product = await InventoryProduct.findById(item.productId);
-      if (!product) {
-        return res.status(404).json({ message: `Product not found: ${item.productId}` });
+
+      // -------------------------------------------------
+      // PRODUCT TYPE
+      // -------------------------------------------------
+      if (item.type === "product") {
+        if (!item.productId) {
+          return res.status(400).json({ message: "Product ID is required for product items" });
+        }
+
+        const product = await InventoryProduct.findById(item.productId);
+        if (!product) {
+          return res.status(404).json({ message: `Product not found: ${item.productId}` });
+        }
+
+        if (product.quantityInStock < item.quantity) {
+          return res.status(400).json({
+            message: `Insufficient stock for ${product.name}. Available: ${product.quantityInStock}`,
+          });
+        }
+
+        // Auto-fill pricing
+        item.price = product.sellingPrice;
+        item.total = item.quantity * item.price;
+        subtotal += item.total;
+
+        // Deduct stock
+        product.quantityInStock -= item.quantity;
+        product.itemsSold += item.quantity;
+        await product.save();
       }
 
-      // Check if sufficient stock is available
-      if (product.quantityInStock < item.quantity) {
-        return res.status(400).json({
-          message: `Insufficient stock for ${product.name}. Available: ${product.quantityInStock}`
-        });
+      // -------------------------------------------------
+      // SERVICE TYPE
+      // -------------------------------------------------
+      else if (item.type === "service") {
+        if (!item.serviceName || item.serviceName.trim() === "") {
+          return res.status(400).json({ message: "Service name is required for service items" });
+        }
+
+        if (!item.price || item.price <= 0) {
+          return res.status(400).json({ message: "Service price must be greater than 0" });
+        }
+
+        // Compute total normally
+        item.total = item.price * item.quantity;
+        subtotal += item.total;
+
+        // productId stays null for services
+        item.productId = null;
       }
 
-      // Calculate totals
-      item.price = product.sellingPrice;
-      item.total = item.quantity * item.price;
-
-      subtotal += item.total;
-
-      // Deduct stock
-      product.quantityInStock -= item.quantity;
-      product.itemsSold += item.quantity;
-      await product.save();
+      // -------------------------------------------------
+      // UNKNOWN TYPE
+      // -------------------------------------------------
+      else {
+        return res.status(400).json({ message: `Invalid item type: ${item.type}` });
+      }
     }
 
-    const totalAmount = subtotal + tax - discount;
+    const totalAmount = subtotal + Number(tax) - Number(discount);
 
     const sale = await Sale.create({
       saleId: generateSaleId(),
@@ -72,6 +106,7 @@ router.post("/create", auth, async (req, res) => {
     });
 
     res.status(201).json(sale);
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

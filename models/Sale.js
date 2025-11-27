@@ -2,14 +2,16 @@ const mongoose = require("mongoose");
 
 const saleSchema = new mongoose.Schema({
   saleId: { type: String, unique: true },
-  items: [
-    {
-      productId: { type: mongoose.Schema.Types.ObjectId, ref: "InventoryProduct" },
-      quantity: Number,
-      price: Number,
-      total: Number,
-    }
-  ],
+ items: [
+  {
+    type: { type: String, enum: ["product", "service"], required: true },
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: "InventoryProduct", default: null },
+    serviceName: { type: String, default: "" },
+    quantity: Number,
+    price: Number,
+    total: Number
+  }
+],
   subtotal: Number,
   tax: Number,
   discount: Number,

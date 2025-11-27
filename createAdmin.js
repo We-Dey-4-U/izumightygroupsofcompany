@@ -1,7 +1,7 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
-const { User } = require("./models/user");
+const { User } = require("./models/user"); // <-- Update path if needed
 
 // Safety check
 if (!process.env.CONNECTION_STRING) {
@@ -13,13 +13,13 @@ if (!process.env.CONNECTION_STRING) {
 const usersToCreate = [
   {
     name: "Admin User",
-    email: "admin2@example.com",
+    email: "admin@example.com",
     password: "Admin@123",
     role: "admin",
   },
   {
     name: "Staff User",
-    email: "staff2@example.com",
+    email: "staff@example.com",
     password: "Staff@123",
     role: "staff",
   },
@@ -31,13 +31,13 @@ const usersToCreate = [
   },
   {
     name: "Super Stakeholder",
-    email: "stakeholder2@example.com",
+    email: "stakeholder@example.com",
     password: "Stakeholder@123",
     role: "stakeholder",
   },
   {
     name: "Regular User",
-    email: "user2@example.com",
+    email: "user@example.com",
     password: "User@123",
     role: "user",
   },
@@ -49,7 +49,6 @@ const createUsers = async () => {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-
     console.log("✅ Connected to MongoDB");
 
     for (const u of usersToCreate) {
@@ -60,18 +59,12 @@ const createUsers = async () => {
         continue;
       }
 
-      // 🔐 Twist the email (optional uniqueness)
-      const twistedEmail = u.email.replace("@", `+seed@`);
-
-      // 🔐 Hash password
       const hashedPassword = await bcrypt.hash(u.password, 10);
 
       const newUser = new User({
         name: u.name,
-        email: twistedEmail,
+        email: u.email,
         password: hashedPassword,
-
-        // Map roles to boolean flags
         isAdmin: u.role === "admin",
         isStaff: u.role === "staff",
         isSubAdmin: u.role === "subadmin",

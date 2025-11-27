@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { Report } = require("../models/Report");
-const { auth, isAdmin, isStaff,isSubAdmin,isSuperStakeholder } = require("../middleware/auth");
+const { auth, isAdmin, isStaff, isSubAdmin, isSuperStakeholder } = require("../middleware/auth");
 
 // ----- GET ALL REPORTS ----- (Admins only)
 router.get("/", auth, async (req, res) => {
@@ -25,6 +25,20 @@ router.get("/", auth, async (req, res) => {
     res.status(200).json(reports);
   } catch (error) {
     console.error("❌ [GET /reports] Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ----- GET MY REPORTS ----- (Staff only)
+router.get("/my", auth, isStaff, async (req, res) => {
+  try {
+    const reports = await Report.find({ submittedBy: req.user._id })
+      .sort({ date: -1 })
+      .populate("submittedBy", "name email");
+
+    res.status(200).json(reports);
+  } catch (error) {
+    console.error("❌ [GET /reports/my] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
@@ -111,8 +125,8 @@ router.put("/:id", auth, async (req, res) => {
     const report = await Report.findById(req.params.id);
     if (!report) return res.status(404).json({ message: "Report not found" });
 
-    if (req.user.isAdmin) {
-      // Admin can update supervisorComment & performanceRating only
+    // ✅ Admin, SubAdmin, and SuperStakeholder can update supervisorComment & performanceRating
+    if (req.user.isAdmin || req.user.isSubAdmin || req.user.isSuperStakeholder) {
       if (req.body.supervisorComment !== undefined)
         report.supervisorComment = req.body.supervisorComment;
 
@@ -132,8 +146,8 @@ router.put("/:id", auth, async (req, res) => {
         "nextWeekTargets",
         "supportNeeded",
         "fileUploads",
-        "rolePlayed",     // NEW FIELD
-        "selfRating"      // NEW FIELD
+        "rolePlayed",
+        "selfRating"
       ];
 
       allowedFields.forEach((field) => {

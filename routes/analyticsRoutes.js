@@ -144,7 +144,6 @@ router.get("/payroll-summary", auth, async (req, res) => {
   // Allow ONLY admin, subadmin, or super stakeholder
   if (
     !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
     !req.user.isSuperStakeholder
   ) {
     return res.status(403).json({ message: "Access denied" });
@@ -208,38 +207,45 @@ router.get("/alltime-summary", auth, async (req, res) => {
   console.log("📌 [GET /analytics/alltime-summary] Requested by:", req.user?.email);
 
   try {
+    // Check if the user is subadmin
+    const isSubAdmin = req.user.isSubAdmin;
+
     // Fetch totals in parallel
-    const [totalUsers, totalProducts, totalOrders, totalEarnings] = await Promise.all([
-      User.countDocuments({}),
-      InventoryProduct.countDocuments({}), // ✅ Use InventoryProduct
-      Order.countDocuments({}),
-      Order.aggregate([{ $group: { _id: null, total: { $sum: "$total" } } }]),
-    ]);
+    const totalUsers = await User.countDocuments({});
+    const totalProducts = await InventoryProduct.countDocuments({});
 
-    // Previous totals (previous month)
-    const startPrevMonth = moment().subtract(1, "month").startOf("month").toDate();
-    const endPrevMonth = moment().subtract(1, "month").endOf("month").toDate();
-
-    const [prevUsers, prevProducts, prevOrders, prevEarnings] = await Promise.all([
-      User.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
-      InventoryProduct.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
-      Order.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
-      Order.aggregate([
-        { $match: { createdAt: { $lt: moment().startOf("month").toDate() } } },
-        { $group: { _id: null, total: { $sum: "$total" } } },
-      ]),
-    ]);
-
-    res.status(200).json({
+    // Prepare response object for subadmin
+    let response = {
       users: totalUsers || 0,
-      prevUsers: prevUsers || 0,
       products: totalProducts || 0,
-      prevProducts: prevProducts || 0,
-      orders: totalOrders || 0,
-      prevOrders: prevOrders || 0,
-      earnings: totalEarnings[0]?.total || 0,
-      prevEarnings: prevEarnings[0]?.total || 0,
-    });
+    };
+
+    // If user is NOT subadmin, fetch orders and earnings as well
+    if (!isSubAdmin) {
+      const [totalOrders, totalEarnings, prevUsers, prevProducts, prevOrders, prevEarnings] =
+        await Promise.all([
+          Order.countDocuments({}),
+          Order.aggregate([{ $group: { _id: null, total: { $sum: "$total" } } }]),
+          User.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
+          InventoryProduct.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
+          Order.countDocuments({ createdAt: { $lt: moment().startOf("month").toDate() } }),
+          Order.aggregate([
+            { $match: { createdAt: { $lt: moment().startOf("month").toDate() } } },
+            { $group: { _id: null, total: { $sum: "$total" } } },
+          ]),
+        ]);
+
+      Object.assign(response, {
+        prevUsers: prevUsers || 0,
+        prevProducts: prevProducts || 0,
+        orders: totalOrders || 0,
+        prevOrders: prevOrders || 0,
+        earnings: totalEarnings[0]?.total || 0,
+        prevEarnings: prevEarnings[0]?.total || 0,
+      });
+    }
+
+    res.status(200).json(response);
   } catch (error) {
     console.error("❌ All-time summary error:", error.message);
     res.status(500).json({ message: error.message });
@@ -247,17 +253,12 @@ router.get("/alltime-summary", auth, async (req, res) => {
 });
 
 
-
 // -----------------------------
 // 3️⃣ ATTENDANCE SUMMARY (Weekly)
 // -----------------------------
 router.get("/attendance-summary", auth, async (req, res) => {
   // Allow ONLY admin, subadmin, or super stakeholder
-  if (
-    !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
-    !req.user.isSuperStakeholder
-  ) {
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
   }
 
@@ -267,12 +268,15 @@ router.get("/attendance-summary", auth, async (req, res) => {
     const startOfWeek = moment().startOf("isoWeek");
     const attendanceTrend = [];
 
+    // Get dynamic total staff count
+    const totalStaff = await User.countDocuments({ isStaff: true });
+
     for (let i = 0; i < 7; i++) {
       const day = moment(startOfWeek).add(i, "days").format("YYYY-MM-DD");
       const records = await Attendance.find({ date: day });
 
       const present = records.filter((r) => r.timeIn).length;
-      const absent = 50 - present; // assuming 50 staff total
+      const absent = totalStaff - present; // dynamic based on actual staff
       const late = records.filter((r) => moment(r.timeIn).hour() > 9).length;
 
       attendanceTrend.push({ date: day, present, absent, late });
@@ -292,7 +296,6 @@ router.get("/expenses-summary", auth, async (req, res) => {
   // Allow ONLY admin, subadmin, or super stakeholder
   if (
     !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
     !req.user.isSuperStakeholder
   ) {
     return res.status(403).json({ message: "Access denied" });
@@ -409,7 +412,6 @@ router.get("/week-earnings", auth, async (req, res) => {
   // Allow ONLY admin, subadmin, or super stakeholder
   if (
     !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
     !req.user.isSuperStakeholder
   ) {
     return res.status(403).json({ message: "Access denied" });
@@ -446,7 +448,6 @@ router.get("/expenses-category-analytics", auth, async (req, res) => {
   // Allow ONLY admin, subadmin, or super stakeholder
   if (
     !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
     !req.user.isSuperStakeholder
   ) {
     return res.status(403).json({ message: "Access denied" });
@@ -482,7 +483,6 @@ router.get("/sales-total", auth, async (req, res) => {
   // Allow ONLY admin, subadmin, or super stakeholder
   if (
     !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
     !req.user.isSuperStakeholder
   ) {
     return res.status(403).json({ message: "Access denied" });
