@@ -3,6 +3,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const register = require("./routes/register");
 const login = require("./routes/login");
+const sosRoutes = require("./routes/sosRoutes");
 // const stripe = require("./routes/stripe");
 const productsRoute = require("./routes/products");
 const users = require("./routes/users");
@@ -73,6 +74,7 @@ app.use("/api/employee-info", employeeInfoRoutes);
 app.use("/api/payrolls", payrollRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/sales", salesRoutes);
+app.use("/api/sos", sosRoutes);
 /* -----------------------------------
    BASE ROUTES
 -------------------------------------- */
