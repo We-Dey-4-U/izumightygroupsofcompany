@@ -35,6 +35,7 @@ const sosAlertSchema = new mongoose.Schema(
         "Intrusion",
         "Harassment",
         "Violence",
+         "Bandit Attack",     // ✅ ADD HERE
         "Suspicious Movement",
         "Panic Alert",
         "Power Failure",
