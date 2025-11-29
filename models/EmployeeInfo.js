@@ -6,114 +6,130 @@ const EmployeeInfoSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      unique: true, // each staff submits onc
+      unique: true,
     },
 
     // -----------------------------
     // PERSONAL INFORMATION
     // -----------------------------
     personal: {
-      fullName: String,
-      gender: String,
-      maritalStatus: String,
-      stateOfOrigin: String,
-      dateOfBirth: Date,
-      nationality: String,
+      type: {
+        fullName: { type: String, required: true },
+        gender: { type: String, required: true },
+        maritalStatus: { type: String, required: true },
+        stateOfOrigin: { type: String, required: true },
+        dateOfBirth: { type: Date, required: true },
+        nationality: { type: String, required: true },
+      },
+      required: true,
     },
 
     // -----------------------------
     // CONTACT DETAILS
     // -----------------------------
     contact: {
-      address: String,
-      phoneNumber: String,
-      email: String,
+      type: {
+        address: { type: String, required: true },
+        phoneNumber: { type: String, required: true },
+        email: { type: String, required: true },
+      },
+      required: true,
     },
 
     // -----------------------------
     // NEXT OF KIN
     // -----------------------------
     nextOfKin: {
-      fullName: String,
-      relationship: String,
-      phoneNumber: String,
-      address: String,
+      type: {
+        fullName: { type: String, required: true },
+        relationship: { type: String, required: true },
+        phoneNumber: { type: String, required: true },
+        address: { type: String, required: true },
+      },
+      required: true,
     },
 
     // -----------------------------
     // EMPLOYMENT DETAILS
     // -----------------------------
     employment: {
-      position: String,
-      department: String,
-      dateOfEmployment: Date,
-      employmentType: {
-        type: String,
-        enum: ["full-time", "contract", "hybrid"],
-        required: true,
+      type: {
+        position: { type: String, required: true },
+        department: { type: String, required: true },
+        dateOfEmployment: { type: Date, required: true },
+        employmentType: {
+          type: String,
+          enum: ["full-time", "contract", "hybrid"],
+          required: true,
+        },
       },
+      required: true,
     },
 
     // -----------------------------
     // EDUCATIONAL BACKGROUND
     // -----------------------------
     education: {
-      highestQualification: String,
-      otherCertificates: String,
+      type: {
+        highestQualification: { type: String, required: true },
+        otherCertificates: { type: String, required: true },
+      },
+      required: true,
     },
 
     // -----------------------------
     // IDENTIFICATION DETAILS
-    // Employee ID + Image
     // -----------------------------
     identification: {
-      idType: String,
-      idNumber: String,
-      expiryDate: Date,
-      meansOfIdImage: {
-        type: String, // store Appwrite URL
-        required: false,
+      type: {
+        idType: { type: String, required: true },
+        idNumber: { type: String, required: true },
+        expiryDate: { type: Date, required: true },
+        meansOfIdImage: { type: String, required: true }, // Appwrite URL
       },
+      required: true,
     },
 
     // -----------------------------
     // BANK DETAILS
     // -----------------------------
     bank: {
-      bankName: String,
-      accountName: String,
-      accountNumber: String,
+      type: {
+        bankName: { type: String, required: true },
+        accountName: { type: String, required: true },
+        accountNumber: { type: String, required: true },
+      },
+      required: true,
     },
 
     // -----------------------------
     // GUARANTOR INFO
     // -----------------------------
-   // GUARANTOR INFO
-guarantor: {
-  fullName: String,
-  relationship: String,
-  identification: {
-    idType: String,
-    idNumber: String,
-    expiryDate: Date,
-    meansOfIdImage: {
-      type: String, // store Appwrite URL
-      required: false,
+    guarantor: {
+      type: {
+        fullName: { type: String, required: true },
+        relationship: { type: String, required: true },
+
+        identification: {
+          idType: { type: String, required: true },
+          idNumber: { type: String, required: true },
+          expiryDate: { type: Date, required: true },
+          meansOfIdImage: { type: String, required: true },
+        },
+
+        passport: { type: String, required: true }, // Appwrite URL
+        address: { type: String, required: true },
+        phoneNumber: { type: String, required: true },
+      },
+      required: true,
     },
-  },
-  passport: {
-    type: String, // store Appwrite URL
-    required: false,
-  },
-  address: String,
-  phoneNumber: String,
-},
+
     // -----------------------------
     // EMPLOYEE PASSPORT
     // -----------------------------
     employeePassport: {
-      type: String, // store Appwrite URL
-      required: false,
+      type: String,
+      required: true,
     },
   },
   { timestamps: true }
