@@ -1,16 +1,25 @@
 const jwt = require("jsonwebtoken");
+const { User } = require("../models/user"); // ✅ make sure this is imported
+
 
 // ====== Verify Token ======
-const auth = (req, res, next) => {
+// ====== Verify Token ======
+const auth = async (req, res, next) => {
   const token = req.header("x-auth-token");
   if (!token) return res.status(401).send("Access denied. Not authenticated...");
 
   try {
     const jwtSecretKey = process.env.JWT_SECRET_KEY;
     const decoded = jwt.verify(token, jwtSecretKey);
-    req.user = decoded;
+
+    // Fetch full user from DB
+    const user = await User.findById(decoded._id).select("-password");
+    if (!user) return res.status(401).send("User not found");
+
+    req.user = user; // ✅ now includes company, roles, etc 
     next();
   } catch (ex) {
+    console.error("Auth error:", ex);
     res.status(400).send("Invalid auth token...");
   }
 };
@@ -73,4 +82,19 @@ const isSuperStakeholder = (req, res, next) => {
   });
 };
 
-module.exports = { auth, isUser, isAdmin, isStaff, isSuperStakeholder,isSubAdmin };
+
+const isCompanyAdmin = (req, res, next) => {
+  const user = req.user;
+  if (!user.roles.isAdmin && !user.roles.isSuperStakeholder) {
+    return res.status(403).json({ message: "Forbidden: Admins only" });
+  }
+  next();
+};
+
+const companyDataAccess = (model) => async (req, res, next) => {
+  req.model = model;
+  req.companyId = req.user.company;
+  next();
+};
+
+module.exports = { auth, isUser, isAdmin, isStaff, isSuperStakeholder,isSubAdmin,isCompanyAdmin ,companyDataAccess  };

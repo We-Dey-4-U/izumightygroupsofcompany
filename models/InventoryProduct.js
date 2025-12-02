@@ -8,6 +8,7 @@ const generateProductCode = () => {
 const inventoryProductSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
+   // company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
     productModel: { type: String, required: true }, // New field added
     productCode: {
       type: String,
@@ -15,6 +16,7 @@ const inventoryProductSchema = new mongoose.Schema(
       default: generateProductCode,
       immutable: true, // cannot be changed after creation
     },
+
     category: { 
       type: String, 
       required: true, 

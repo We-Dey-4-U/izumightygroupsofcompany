@@ -24,6 +24,7 @@
     "mongoose": "^7.0.2",
     "multer": "^2.0.2",
     "node-appwrite": "^20.2.1",
+    "nodemailer": "^7.0.11",
     "nodemon": "^2.0.21",
     "prerender-node": "^3.8.3",
     "stripe": "^11.15.0",

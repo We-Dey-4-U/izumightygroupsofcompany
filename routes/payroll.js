@@ -1,52 +1,106 @@
 require("dotenv").config();
 const express = require("express");
 const router = express.Router();
-const { auth, isAdmin,isSuperStakeholder } = require("../middleware/auth");
+const cors = require("cors");
+const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 const Payroll = require("../models/Payroll");
 const { User } = require("../models/user");
 const { v4: uuidv4 } = require("uuid");
 const axios = require("axios");
 const FormData = require("form-data");
 
-/**
- * Helper: Upload payslip to Appwrite storage
- */
+// --- CORS Setup ---
+router.use(cors({
+  origin: "*", // adjust to your frontend domain in production
+  methods: ["GET", "POST", "PUT", "DELETE"],
+}));
+
+/** Helper: Upload payslip to Appwrite storage */
 async function uploadPayslip(fileBuffer, fileName) {
   const fileId = uuidv4();
   const formData = new FormData();
   formData.append("fileId", fileId);
   formData.append("file", fileBuffer, { filename: fileName });
 
-  const resp = await axios.post(
-    `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files`,
-    formData,
-    {
-      headers: {
-        "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
-        "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
-        ...formData.getHeaders(),
-      },
-      maxBodyLength: Infinity,
-    }
-  );
+  try {
+    const resp = await axios.post(
+      `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files`,
+      formData,
+      {
+        headers: {
+          "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+          "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
+          ...formData.getHeaders(),
+        },
+        maxBodyLength: Infinity,
+      }
+    );
 
-  return `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${resp.data.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`;
+    console.log(`✅ Payslip uploaded: ${fileName}, fileId: ${fileId}`);
+    return `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${resp.data.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`;
+  } catch (err) {
+    console.error("❌ Error uploading payslip:", err.message, err.stack);
+    throw err;
+  }
 }
 
-/**
- * POST /generate
- * Generate payroll for a staff member (Admin only)
- */
-router.post("/generate", auth, isAdmin, async (req, res) => {
-  console.log("\n========================");
-  console.log("📌 PAYSLIP GENERATION STARTED");
-  console.log("========================");
-
+/** 🔥 BULK PAYROLL SENDING */
+router.post("/send-bulk", auth, isAdmin, async (req, res) => {
   try {
-    console.log("📥 Incoming Request Body:", req.body);
+    const { month, year } = req.body;
+    if (!month || !year) return res.status(400).json({ message: "Month and year are required" });
 
+    console.log(`🔹 Bulk payroll request by ${req.user.email} for company ${req.user.company}, month: ${month}, year: ${year}`);
+
+    const staff = await User.find({ company: req.user.company, isStaff: true }).select("_id name email");
+    if (!staff.length) {
+      console.warn(`⚠️ No staff found for company ${req.user.company}`);
+      return res.status(404).json({ message: "No staff found for your company" });
+    }
+
+    for (const employee of staff) {
+      const existing = await Payroll.findOne({ employeeId: employee._id, month, year });
+      if (existing) continue;
+
+      const payroll = new Payroll({
+        employeeId: employee._id,
+        month,
+        year,
+        basicSalary: 0,
+        housingAllowance: 0,
+        medicalAllowance: 0,
+        transportationAllowance: 0,
+        leaveAllowance: 0,
+        taxDeduction: 0,
+        pensionDeduction: 0,
+        otherDeductions: 0,
+        grossSalary: 0,
+        netPay: 0,
+      });
+
+      await payroll.save();
+
+      console.log(`✅ Payroll created for ${employee.email}, month: ${month}, year: ${year}`);
+
+      sendEmail({
+        to: employee.email,
+        subject: `Your Payslip for ${month}/${year}`,
+        body: `Hello ${employee.name},\nYour payslip for ${month}/${year} is ready.`,
+      });
+    }
+
+    res.json({ message: "Bulk payroll processing completed", count: staff.length });
+  } catch (err) {
+    console.error("❌ Bulk payroll error:", err.message, err.stack);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+/** POST /generate - Single Payslip */
+router.post("/generate", auth, isAdmin, async (req, res) => {
+  try {
     const {
-      email, // 🔥 using email instead of employeeId
+      emails,
       month,
       year,
       basicSalary = 0,
@@ -59,172 +113,217 @@ router.post("/generate", auth, isAdmin, async (req, res) => {
       otherDeductions = 0,
     } = req.body;
 
-    console.log(`🔍 Searching for employee with email: ${email}`);
+    if (!emails || !emails.length) return res.status(400).json({ message: "Email(s) are required" });
 
-    // 🔥 Find employee using email
-    const employee = await User.findOne({ email });
-    console.log("👤 Employee Lookup Result:", employee);
+    console.log(`🔹 Payroll generation request by ${req.user.email} for company ${req.user.company}, month: ${month}, year: ${year}`);
 
-    if (!employee) {
-      console.log("❌ Employee NOT FOUND");
-      return res.status(404).json({ message: "Employee not found with that email" });
-    }
+    const results = [];
 
-    const employeeId = employee._id;
-    console.log("✅ Employee Found:", employeeId.toString());
+    for (const email of emails) {
+      const employee = await User.findOne({ email });
+      if (!employee) {
+        console.warn(`⚠️ Employee not found: ${email}`);
+        continue;
+      }
 
-    console.log(`🔍 Checking for existing payroll for: ${month}/${year}`);
+      if (employee.company !== req.user.company) {
+        console.warn(`⚠️ Skipped payroll for ${email} - belongs to another company: ${employee.company}`);
+        continue;
+      }
 
-    const existingPayroll = await Payroll.findOne({ employeeId, month, year });
-    console.log("📄 Existing payroll check result:", existingPayroll);
+      const existing = await Payroll.findOne({ employeeId: employee._id, month, year });
+      if (existing) {
+        console.log(`⚠️ Payroll already exists for ${email}, month: ${month}, year: ${year}`);
+        continue;
+      }
 
-    if (existingPayroll) {
-      console.log("❌ Duplicate payroll detected!");
-      return res.status(400).json({
-        message: "Payroll already exists for this employee and month.",
+      const grossSalary =
+        Number(basicSalary) +
+        Number(housingAllowance) +
+        Number(medicalAllowance) +
+        Number(transportationAllowance) +
+        Number(leaveAllowance);
+
+      const totalDeductions = Number(taxDeduction) + Number(pensionDeduction) + Number(otherDeductions);
+      const netPay = grossSalary - totalDeductions;
+
+      const payroll = new Payroll({
+        employeeId: employee._id,
+        month,
+        year,
+        basicSalary,
+        housingAllowance,
+        medicalAllowance,
+        transportationAllowance,
+        leaveAllowance,
+        taxDeduction,
+        pensionDeduction,
+        otherDeductions,
+        grossSalary,
+        netPay,
       });
-    }
 
-    console.log("💰 Calculating salary and deductions...");
+      await payroll.save();
 
-    const grossSalary =
-      Number(basicSalary) +
-      Number(housingAllowance) +
-      Number(medicalAllowance) +
-      Number(transportationAllowance) +
-      Number(leaveAllowance);
-
-    const totalDeductions =
-      Number(taxDeduction) +
-      Number(pensionDeduction) +
-      Number(otherDeductions);
-
-    const netPay = grossSalary - totalDeductions;
-
-    console.log("💸 Gross Salary:", grossSalary);
-    console.log("📉 Total Deductions:", totalDeductions);
-    console.log("🧮 Net Pay:", netPay);
-
-    console.log("📝 Creating and saving payroll record...");
-
-    const payroll = new Payroll({
-      employeeId,
-      month,
-      year,
-      basicSalary,
-      housingAllowance,
-      medicalAllowance,
-      transportationAllowance,
-      leaveAllowance,
-      taxDeduction,
-      pensionDeduction,
-      otherDeductions,
-      grossSalary,
-      netPay,
-    });
-
-    const savedPayslip = await payroll.save();
-    console.log("✅ Payroll saved:", savedPayslip);
-
-    console.log("📧 Checking if email notification should be sent...");
-    console.log("Employee is staff?", employee.isStaff);
-    console.log("Employee email:", employee.email);
-
-    // Optional: send email notification
-    if (employee.isStaff && employee.email) {
-      console.log("📨 Sending payslip notification email...");
+      console.log(`✅ Payroll generated for ${email}, netPay: ₦${netPay}`);
 
       sendEmail({
-        to: employee.email,
-        subject: `Your Payslip for ${month}/${year}`,
-        body: `Hello ${employee.name}, your payroll has been generated.\nNet Pay: ₦${netPay}`,
-        attachmentUrl: payroll.payslipUrl,
+        to: email,
+        subject: `Payslip for ${month}/${year}`,
+        body: `Your net pay is ₦${netPay}`,
       });
 
-      console.log("✅ Email dispatched");
-    } else {
-      console.log("⚠ Email NOT sent. Employee is not staff or email missing.");
+      results.push(payroll);
     }
 
-    console.log("🎉 PAYSLIP GENERATION COMPLETED SUCCESSFULLY");
+    res.status(201).json({ message: "Payroll processed", count: results.length, results });
+  } catch (err) {
+    console.error("❌ Single payroll generation error:", err.message, err.stack);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
 
-    res.status(201).json({
-      message: "Payroll generated successfully",
-      payroll,
-    });
+
+
+/** GET my own payslips (FOR STAFF) */
+router.get("/my-payslips", auth, async (req, res) => {
+  try {
+    // Staff ONLY sees their own payslips
+    const payrolls = await Payroll.find({
+      employeeId: req.user._id,
+    }).sort({ year: -1, month: -1 });
+
+    console.log(`📄 Staff ${req.user.email} fetched ${payrolls.length} payslips`);
+    return res.status(200).json(payrolls);
 
   } catch (err) {
-    console.log("\n❌ ERROR OCCURRED DURING PAYSLIP GENERATION");
-    console.error(err);
-    console.log("========================\n");
-
-    res.status(500).json({
+    console.error("❌ Error fetching staff payslips:", err.message);
+    return res.status(500).json({
       message: "Server error",
       error: err.message,
     });
   }
 });
 
-
-
-/**
- * GET /all
- * Get all payrolls (Admin only)
- */
+/** GET all payrolls */
+/** GET all payrolls */
 router.get("/all", auth, async (req, res) => {
-  // Block if NOT admin AND NOT subadmin AND NOT super stakeholder
-  if (
-    !req.user.isAdmin &&
-    !req.user.isSuperStakeholder
-  ) {
-    return res.status(403).json({ message: "Access denied" });
-  }
-
   try {
-    const payrolls = await Payroll.find().populate(
-      "employeeId",
-      "name email"
-    );
+    console.log(`🔹 Fetching all payrolls for ${req.user.email}`);
 
+    let payrolls;
+
+    // 🔥 Both Admin & SuperStakeholder should ONLY see company payrolls
+    if (req.user.isAdmin || req.user.isSuperStakeholder) {
+      payrolls = await Payroll.find()
+        .populate("employeeId", "name email company isStaff");
+
+      payrolls = payrolls.filter(
+        (p) =>
+          p.employeeId?.company === req.user.company &&
+          p.employeeId?.isStaff
+      );
+    } else {
+      // Staff sees only their own payroll
+      payrolls = await Payroll.find({
+        employeeId: req.user._id,
+      }).populate("employeeId", "name email company");
+    }
+
+    console.log(`✅ Retrieved ${payrolls.length} payroll(s)`);
+    res.status(200).json(payrolls);
+
+  } catch (err) {
+    console.error("❌ Error fetching all payrolls:", err.message, err.stack);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
+/** GET staff payrolls by employee ID */
+router.get("/staff/:id", auth, async (req, res) => {
+  try {
+    const employee = await User.findById(req.params.id);
+    if (!employee) {
+      console.warn(`⚠️ Employee not found with ID: ${req.params.id}`);
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    if (!req.user.isSuperStakeholder && employee.company !== req.user.company) {
+      console.warn(`⚠️ Access denied for ${req.user.email} to view ${employee.email}`);
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const payrolls = await Payroll.find({ employeeId: req.params.id }).sort({ year: -1, month: -1 });
+
+    console.log(`✅ Retrieved ${payrolls.length} payroll(s) for ${employee.email}`);
     res.status(200).json(payrolls);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    console.error("❌ Error fetching staff payrolls:", err.message, err.stack);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-/**
- * GET /staff/:id
- * Get payrolls for a specific staff (Admin only)
- */
-router.get("/staff/:id", auth, isAdmin, async (req, res) => {
+/** GET staff by company */
+router.get("/by-company/:company", auth, isAdmin, async (req, res) => {
+  console.log("============================================");
+  console.log("📌 [GET /payrolls/by-company/:company] HIT");
+  console.log("📥 Full URL:", req.originalUrl);
+  console.log("👥 Requested By:", req.user?.email || "Unknown User");
+  console.log("🧩 Requested Company:", req.params.company);
+  console.log("--------------------------------------------");
+
   try {
-    const payrolls = await Payroll.find({ employeeId: req.params.id })
-      .sort({ year: -1, month: -1 });
-    res.status(200).json(payrolls);
+    const selectedCompany = req.params.company?.trim();
+    const userCompany = req.user?.company?.trim();
+
+    if (!selectedCompany) {
+      console.log("❌ ERROR: Missing company param");
+      console.log("============================================");
+      return res.status(400).json({ message: "Company is required" });
+    }
+
+    if (!userCompany && !req.user.isSuperStakeholder) {
+      console.log(`❌ ERROR: Admin ${req.user?.email || "Unknown"} has no company assigned`);
+      console.log("============================================");
+      return res.status(403).json({ message: "Access denied: No company assigned" });
+    }
+
+    const selectedLower = selectedCompany.toLowerCase();
+    const userLower = userCompany?.toLowerCase();
+
+    if (!req.user.isSuperStakeholder && selectedLower !== userLower) {
+      console.log(`❌ ACCESS DENIED: ${req.user.email} tried to view ${selectedCompany} staff`);
+      console.log("============================================");
+      return res.status(403).json({ message: "Access denied: You cannot view other company's staff" });
+    }
+
+    const companyToSearch = req.user.isSuperStakeholder ? selectedCompany : userCompany;
+
+    console.log(`🔍 Searching staff for company: ${companyToSearch}`);
+
+    // ✅ Only staff users
+    const staff = await User.find({ 
+      company: companyToSearch,
+      isStaff: true
+    }).select("_id name email");
+
+    console.log(`✅ Staff Found: ${staff.length}`);
+    console.log("============================================");
+
+    return res.status(200).json(staff);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    console.log("❌ SERVER ERROR in /by-company route");
+    console.log("🛑 Error:", err.message);
+    console.log("============================================");
+    return res.status(500).json({
+      message: "Server error while fetching staff",
+      error: err.message,
+    });
   }
 });
 
-
-
-router.get("/my-payslips", auth, async (req, res) => {
-  try {
-    const payrolls = await Payroll.find({ employeeId: req.user._id })
-      .sort({ year: -1, month: -1 });
-
-    return res.status(200).json(payrolls);
-  } catch (err) {
-    console.error("❌ Error fetching employee payslips:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
-/**
- * Placeholder function: Send email
- */
+/** Email Notification (placeholder) */
 function sendEmail({ to, subject, body, attachmentUrl }) {
   console.log("📧 Sending email to:", to);
   console.log("Subject:", subject);

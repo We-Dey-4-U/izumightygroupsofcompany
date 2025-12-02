@@ -9,12 +9,7 @@ const sosAlertSchema = new mongoose.Schema(
     },
 
     // Temporarily optional for testing
-    companyId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Company",
-      required: false, // 🔹 make optional temporarily
-    },
-
+   company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
     category: {
       type: String,
       enum: ["Security", "General", "Office"],

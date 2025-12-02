@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const saleSchema = new mongoose.Schema({
   saleId: { type: String, unique: true },
+ // company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
  items: [
   {
     type: { type: String, enum: ["product", "service"], required: true },

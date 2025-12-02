@@ -1,7 +1,7 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
-const { User } = require("./models/user"); // <-- Update path if needed
+const { User } = require("./models/user");
 
 // Safety check
 if (!process.env.CONNECTION_STRING) {
@@ -9,39 +9,36 @@ if (!process.env.CONNECTION_STRING) {
   process.exit(1);
 }
 
-// Users to create
-const usersToCreate = [
-  {
-    name: "Admin User",
-    email: "admin@example.com",
-    password: "Admin@123",
-    role: "admin",
-  },
-  {
-    name: "Staff User",
-    email: "staff@example.com",
-    password: "Staff@123",
-    role: "staff",
-  },
-  {
-    name: "Sub Admin",
-    email: "subadmin@example.com",
-    password: "SubAdmin@123",
-    role: "subadmin",
-  },
-  {
-    name: "Super Stakeholder",
-    email: "stakeholder@example.com",
-    password: "Stakeholder@123",
-    role: "stakeholder",
-  },
-  {
-    name: "Regular User",
-    email: "user@example.com",
-    password: "User@123",
-    role: "user",
-  },
-];
+// Users to create: 2 per company for each role
+const companies = ["Agreeko", "Welbeg"];
+
+const usersToCreate = [];
+
+companies.forEach((company) => {
+  usersToCreate.push(
+    {
+      name: `${company} Admin`,
+      email: `admin_${company.toLowerCase()}@example.com`,
+      password: "Admin@123",
+      role: "admin",
+      company,
+    },
+    {
+      name: `${company} SubAdmin`,
+      email: `subadmin_${company.toLowerCase()}@example.com`,
+      password: "SubAdmin@123",
+      role: "subadmin",
+      company,
+    },
+    {
+      name: `${company} Stakeholder`,
+      email: `stakeholder_${company.toLowerCase()}@example.com`,
+      password: "Stakeholder@123",
+      role: "stakeholder",
+      company,
+    }
+  );
+});
 
 const createUsers = async () => {
   try {
@@ -65,14 +62,14 @@ const createUsers = async () => {
         name: u.name,
         email: u.email,
         password: hashedPassword,
+        company: u.company,
         isAdmin: u.role === "admin",
-        isStaff: u.role === "staff",
         isSubAdmin: u.role === "subadmin",
         isSuperStakeholder: u.role === "stakeholder",
       });
 
       await newUser.save();
-      console.log(`✔ Created ${u.role}: ${newUser.email}`);
+      console.log(`✔ Created ${u.role} (${u.company}): ${newUser.email}`);
     }
 
     console.log("🎉 User seeding complete!");

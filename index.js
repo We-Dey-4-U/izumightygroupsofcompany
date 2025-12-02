@@ -19,6 +19,7 @@ const employeeInfoRoutes = require("./routes/employeeInfoRoutes");
 const payrollRoutes = require("./routes/payroll"); // updated payroll router
 const inventoryRoutes = require("./routes/inventory");
 const salesRoutes = require("./routes/salesRoutes");
+const bulkEmailRoutes = require("./routes/bulkEmail"); // ✅ Bulk Email module
 
 const app = express();
 
@@ -75,6 +76,7 @@ app.use("/api/payrolls", payrollRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/sos", sosRoutes);
+app.use("/api/bulk-email", bulkEmailRoutes); // ✅ Added Bulk Email routes
 /* -----------------------------------
    BASE ROUTES
 -------------------------------------- */

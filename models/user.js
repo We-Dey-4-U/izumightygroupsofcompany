@@ -16,10 +16,26 @@ const userSchema = new mongoose.Schema(
       minlength: 3, 
       maxlength: 1024 
      },
+
+      company: {
+  type: String,
+  required: true, // no enum, user can type any company
+  minlength: 2,
+  maxlength: 50
+},
+      // 🔥 NEW FIELD — COMPANY ENUM
+   // company: {
+   //   type: String,
+    //  enum: ["Agreeko", "Welbeg","Techwireict"],   // ⬅ ONLY allowed companies
+   //   required: true
+   // },
+
+   //   company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Link user to company
     isAdmin: { type: Boolean, default: false },
     isStaff: { type: Boolean, default: false },
     isSuperStakeholder: { type: Boolean, default: false }, // ✅ NEW FIELD
      isSubAdmin: { type: Boolean, default: false },
+    //  isSuperAdmin: { type: Boolean, default: false }, // Only superadmin can onboard companies
   },
   { timestamps: true }
 );

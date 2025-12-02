@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const reportSchema = new mongoose.Schema(
   {
     staffName: { type: String, required: true },
+    company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
     department: { type: String, required: true },
     designation: { type: String, required: true },
     weekEnding: { type: Date, required: true },

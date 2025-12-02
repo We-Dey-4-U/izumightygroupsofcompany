@@ -9,6 +9,7 @@ const expenseSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
 
     description: { type: String, required: true },
 

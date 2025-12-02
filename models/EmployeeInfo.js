@@ -8,6 +8,7 @@ const EmployeeInfoSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
 
     // -----------------------------
     // PERSONAL INFORMATION
