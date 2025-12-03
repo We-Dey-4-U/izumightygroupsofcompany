@@ -9,16 +9,10 @@ const clientEmailSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    company: { 
-      type: String, 
-      required: true 
-    },
-    addedBy: { 
-      type: mongoose.Schema.Types.ObjectId, 
-      ref: "User",
-      required: true
-    },
+    company: { type: String, required: true },
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     name: { type: String, default: "" }, // optional client name
+    category: { type: String, default: "General" }, // new field for categorization
   },
   { timestamps: true }
 );
