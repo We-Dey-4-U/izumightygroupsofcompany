@@ -6,32 +6,28 @@ const EmailLog = require("../models/EmailLog");
 const nodemailer = require("nodemailer");
 const { v4: uuidv4 } = require("uuid");
 
-// Environment variables
 const BASE_URL = process.env.BASE_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-// Role checking middleware
+// ROLE CHECK
 const allowRoles = (...roles) => {
   return (req, res, next) => {
     const user = req.user;
-    console.log("Checking roles for user:", user.email, roles);
     if (
       (roles.includes("isAdmin") && user.isAdmin) ||
       (roles.includes("isStaff") && user.isStaff) ||
       (roles.includes("isSubAdmin") && user.isSubAdmin) ||
       (roles.includes("isSuperStakeholder") && user.isSuperStakeholder)
     ) {
-      console.log("Access granted for roles:", roles);
       return next();
     }
-    console.warn("Access denied for user:", user.email);
     return res.status(403).json({ message: "Access denied" });
   };
 };
 
-// -----------------------------------------
-// Add Client Email
-// -----------------------------------------
+// ------------------------------------------------------
+// ADD CLIENT EMAIL
+// ------------------------------------------------------
 router.post(
   "/add",
   auth,
@@ -48,7 +44,9 @@ router.post(
       });
 
       if (exists)
-        return res.status(409).json({ message: "Email already exists for your company" });
+        return res
+          .status(409)
+          .json({ message: "Email already exists for your company" });
 
       const clientEmail = new ClientEmail({
         email: email.toLowerCase(),
@@ -59,37 +57,46 @@ router.post(
       });
 
       await clientEmail.save();
-      console.log("Email added successfully:", clientEmail.email);
-      res.status(201).json({ message: "Email added successfully", clientEmail });
+
+      res
+        .status(201)
+        .json({ message: "Email added successfully", clientEmail });
     } catch (err) {
       console.error("❌ Add client email error:", err);
-      res.status(500).json({ message: "Server error", error: err.message });
+      res
+        .status(500)
+        .json({ message: "Server error", error: err.message });
     }
   }
 );
 
-// -----------------------------------------
-// Fetch Client Emails
-// -----------------------------------------
+// ------------------------------------------------------
+// LIST CLIENT EMAILS
+// ------------------------------------------------------
 router.get(
   "/list",
   auth,
   allowRoles("isAdmin", "isStaff", "isSubAdmin", "isSuperStakeholder"),
   async (req, res) => {
     try {
-      console.log("Fetching client emails for company:", req.user.company);
-      const emails = await ClientEmail.find({ company: req.user.company }).sort({ createdAt: -1 });
-      console.log("Fetched emails count:", emails.length);
+      const emails = await ClientEmail.find({
+        company: req.user.company,
+      }).sort({ createdAt: -1 });
       res.status(200).json(emails);
     } catch (err) {
       console.error("❌ Fetch client emails error:", err);
-      res.status(500).json({ message: "Server error", error: err.message });
+      res
+        .status(500)
+        .json({ message: "Server error", error: err.message });
     }
   }
 );
 
+// ------------------------------------------------------
+// SEND BULK EMAIL (Mobile-Friendly Template)
+// ------------------------------------------------------
 // -----------------------------------------
-// Send Bulk Email (Individual Per Recipient)
+// SEND BULK EMAIL (Mobile-Friendly Template with Logo)
 // -----------------------------------------
 router.post(
   "/send",
@@ -99,13 +106,18 @@ router.post(
     try {
       const { subject, body, category } = req.body;
       if (!subject || !body)
-        return res.status(400).json({ message: "Subject and body are required" });
+        return res
+          .status(400)
+          .json({ message: "Subject and body are required" });
 
       const query = { company: req.user.company };
       if (category) query.category = category;
 
       const clients = await ClientEmail.find(query).select("email name");
-      if (!clients.length) return res.status(404).json({ message: "No client emails found" });
+      if (!clients.length)
+        return res
+          .status(404)
+          .json({ message: "No client emails found" });
 
       const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
@@ -119,20 +131,25 @@ router.post(
       });
 
       const senderEmail = process.env.SMTP_USER;
-      const senderName = process.env.SMTP_NAME || "Techwire ICT Solutions Limited";
+      const senderName =
+        process.env.SMTP_NAME || "Techwire ICT Solutions Limited";
+
+      const logoURL = process.env.COMPANY_LOGO_URL || "https://postimg.cc/Z0M757wJ";
 
       let sent = 0;
 
       for (const client of clients) {
         const clientName =
-          client.name?.trim()?.length > 0 ? client.name : "Valued Customer";
+          client.name?.trim()?.length > 0
+            ? client.name
+            : "Valued Customer";
+
         const personalizedBody = body.replace(
           /{{\s*First Name\/Company Name\s*}}/gi,
           clientName
         );
 
         const trackingId = uuidv4();
-
         const openURL = `${BASE_URL}/api/bulk-email/track-open/${trackingId}?t=${Date.now()}`;
         const clickURL = `${BASE_URL}/api/bulk-email/track-click/${trackingId}`;
         const unsubscribeURL = `${BASE_URL}/api/bulk-email/unsubscribe/${client.email}`;
@@ -145,61 +162,100 @@ router.post(
           trackingId,
         });
 
+        const htmlTemplate = `
+        <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#f4f7fa" style="padding:0;margin:0;">
+          <tr>
+            <td align="center">
+              
+              <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);margin:20px;">
+                
+                <!-- HEADER with Logo -->
+                <tr>
+                  <td bgcolor="#0066cc" style="padding:25px;text-align:center;">
+                    <img src="${logoURL}" alt="Company Logo" width="120" style="display:block;margin:0 auto 10px auto;" />
+                    <div style="color:#ffffff;font-size:24px;font-weight:bold;">${senderName}</div>
+                  </td>
+                </tr>
+
+                <!-- BODY -->
+                <tr>
+                  <td style="padding:25px;font-family:Arial,sans-serif;color:#333;font-size:16px;line-height:1.7;">
+                    <p>Hello <strong>${clientName}</strong>,</p>
+                    <div style="word-wrap:break-word;">
+                      ${personalizedBody.replace(/\n/g, "<br>")}
+                    </div>
+                    <br>
+                    <div style="text-align:center;">
+                      <a href="${clickURL}" 
+                        style="
+                          background:#0066cc;
+                          padding:14px 28px;
+                          color:#ffffff !important;
+                          font-size:16px;
+                          border-radius:8px;
+                          text-decoration:none;
+                          font-weight:bold;
+                          display:inline-block;
+                        ">
+                        Learn More
+                      </a>
+                    </div>
+                    <br>
+                    <p style="font-size:13px;color:#777;">
+                      If this email was not intended for you, you can ignore it.
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- FOOTER -->
+                <tr>
+                  <td bgcolor="#f0f3f7" style="padding:20px;text-align:center;font-size:13px;color:#666;font-family:Arial;">
+                    © ${new Date().getFullYear()} ${senderName}. All rights reserved.
+                    <br>
+                    <a href="${unsubscribeURL}" style="color:red;">Unsubscribe</a>
+                  </td>
+                </tr>
+
+              </table>
+
+              <!-- TRACKING PIXEL -->
+              <img src="${openURL}" width="1" height="1" style="opacity:0;" />
+
+            </td>
+          </tr>
+        </table>
+        `;
+
         const mailOptions = {
           from: `"${senderName}" <${senderEmail}>`,
           to: client.email,
           subject,
           headers: { "List-Unsubscribe": `<${unsubscribeURL}>` },
-          html: `
-            <div style="font-family: Arial; line-height:1.6;">
-              ${personalizedBody.replace(/\n/g, "<br>")}
-              <br><br>
-
-              <!-- Styled Button -->
-              <a 
-                href="${clickURL}" 
-                style="
-                  display:inline-block;
-                  padding:12px 20px;
-                  background:#0066cc;
-                  color:#ffffff !important;
-                  text-decoration:none;
-                  border-radius:6px;
-                  font-weight:bold;
-                  font-size:16px;
-                "
-              >
-                Learn More
-              </a>
-
-              <img src="${openURL}" width="1" height="1" style="opacity:0;" />
-              <br><br>
-
-              <a href="${unsubscribeURL}" style="color:red;">Unsubscribe</a>
-            </div>
-          `,
+          html: htmlTemplate,
         };
 
         await transporter.sendMail(mailOptions);
-        console.log("Email sent to:", client.email);
         sent++;
       }
 
-      res.status(200).json({ message: `Email sent individually to ${sent} recipients.` });
+      res.status(200).json({
+        message: `Email sent to ${sent} clients successfully.`,
+      });
     } catch (err) {
       console.error("❌ Bulk email send error:", err);
-      res.status(500).json({ message: "Server error", error: err.message });
+      res
+        .status(500)
+        .json({ message: "Server error", error: err.message });
     }
   }
 );
 
-// -----------------------------------------
-// Open Tracking Pixel
-// -----------------------------------------
+// ------------------------------------------------------
+// OPEN TRACKING
+// ------------------------------------------------------
 router.get("/track-open/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    console.log("Tracking pixel requested for ID:", id, new Date());
 
     await EmailLog.findOneAndUpdate(
       { trackingId: id },
@@ -216,29 +272,26 @@ router.get("/track-open/:id", async (req, res) => {
     res.set("Pragma", "no-cache");
     res.set("Expires", "0");
     res.send(pixel);
-
-    console.log("Open logged for trackingId:", id);
   } catch (err) {
     console.error("❌ Track-open error:", err);
     res.sendStatus(500);
   }
 });
 
-// -----------------------------------------
-// Click Tracking (Marks as clicked AND opened)
-// -----------------------------------------
+// ------------------------------------------------------
+// CLICK TRACKING
+// ------------------------------------------------------
 router.get("/track-click/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    console.log("Track click requested for ID:", id, new Date());
 
     await EmailLog.findOneAndUpdate(
       { trackingId: id },
-      { 
-        clicked: true, 
+      {
+        clicked: true,
         clickTime: new Date(),
         opened: true,
-        openTime: new Date()
+        openTime: new Date(),
       }
     );
 
@@ -249,13 +302,12 @@ router.get("/track-click/:id", async (req, res) => {
   }
 });
 
-// -----------------------------------------
-// Unsubscribe
-// -----------------------------------------
+// ------------------------------------------------------
+// UNSUBSCRIBE
+// ------------------------------------------------------
 router.get("/unsubscribe/:email", async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
-    console.log("Unsubscribe requested for:", email);
 
     await EmailLog.updateMany(
       { recipient: email },
@@ -263,15 +315,14 @@ router.get("/unsubscribe/:email", async (req, res) => {
     );
 
     const removed = await ClientEmail.findOneAndDelete({ email });
+
     if (!removed) {
-      console.warn("Unsubscribe: email not found", email);
       return res.send(`
         <h2>Email Not Found</h2>
         <p>The email <strong>${email}</strong> is not in our mailing list.</p>
       `);
     }
 
-    console.log("Unsubscribed successfully:", email);
     res.send(`
       <h2>You Have Been Unsubscribed</h2>
       <p>The email <strong>${email}</strong> has been removed from our mailing list.</p>
@@ -282,22 +333,24 @@ router.get("/unsubscribe/:email", async (req, res) => {
   }
 });
 
-// -----------------------------------------
-// Fetch Email Logs
-// -----------------------------------------
+// ------------------------------------------------------
+// FETCH LOGS
+// ------------------------------------------------------
 router.get(
   "/logs",
   auth,
   allowRoles("isAdmin", "isStaff", "isSubAdmin", "isSuperStakeholder"),
   async (req, res) => {
     try {
-      console.log("Fetching email logs for company:", req.user.company);
-      const logs = await EmailLog.find({ company: req.user.company }).sort({ sentAt: -1 });
-      console.log("Logs fetched:", logs.length);
+      const logs = await EmailLog.find({
+        company: req.user.company,
+      }).sort({ sentAt: -1 });
       res.status(200).json(logs);
     } catch (err) {
       console.error("❌ Fetch logs error:", err);
-      res.status(500).json({ message: "Server error", error: err.message });
+      res
+        .status(500)
+        .json({ message: "Server error", error: err.message });
     }
   }
 );
