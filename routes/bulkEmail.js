@@ -2,27 +2,36 @@ const express = require("express");
 const router = express.Router();
 const { auth } = require("../middleware/auth");
 const ClientEmail = require("../models/ClientEmail");
+const EmailLog = require("../models/EmailLog");
 const nodemailer = require("nodemailer");
+const { v4: uuidv4 } = require("uuid");
 
-// Middleware to check allowed roles
+// Environment variables
+const BASE_URL = process.env.BASE_URL;
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
+// Role checking middleware
 const allowRoles = (...roles) => {
   return (req, res, next) => {
     const user = req.user;
+    console.log("Checking roles for user:", user.email, roles);
     if (
       (roles.includes("isAdmin") && user.isAdmin) ||
       (roles.includes("isStaff") && user.isStaff) ||
       (roles.includes("isSubAdmin") && user.isSubAdmin) ||
       (roles.includes("isSuperStakeholder") && user.isSuperStakeholder)
     ) {
+      console.log("Access granted for roles:", roles);
       return next();
     }
+    console.warn("Access denied for user:", user.email);
     return res.status(403).json({ message: "Access denied" });
   };
 };
 
-// ------------------------------
-// Add a client email
-// ------------------------------
+// -----------------------------------------
+// Add Client Email
+// -----------------------------------------
 router.post(
   "/add",
   auth,
@@ -38,15 +47,14 @@ router.post(
         company: req.user.company,
       });
 
-      if (exists)
-        return res.status(409).json({ message: "Email already exists for your company" });
+      if (exists) return res.status(409).json({ message: "Email already exists for your company" });
 
       const clientEmail = new ClientEmail({
         email: email.toLowerCase(),
         name: name || "",
         company: req.user.company,
         addedBy: req.user._id,
-        category: category || "General", // assign category or default
+        category: category || "General",
       });
 
       await clientEmail.save();
@@ -58,19 +66,16 @@ router.post(
   }
 );
 
-// ------------------------------
-// Fetch all client emails
-// ------------------------------
+// -----------------------------------------
+// Fetch Client Emails
+// -----------------------------------------
 router.get(
   "/list",
   auth,
   allowRoles("isAdmin", "isStaff", "isSubAdmin", "isSuperStakeholder"),
   async (req, res) => {
     try {
-      const emails = await ClientEmail.find({
-        company: req.user.company,
-      }).sort({ createdAt: -1 });
-
+      const emails = await ClientEmail.find({ company: req.user.company }).sort({ createdAt: -1 });
       res.status(200).json(emails);
     } catch (err) {
       console.error("❌ Fetch client emails error:", err);
@@ -79,28 +84,23 @@ router.get(
   }
 );
 
-// ------------------------------
-// Send bulk email — ONE EMAIL PER RECIPIENT WITH PLACEHOLDERS
-// ------------------------------
+// -----------------------------------------
+// Send Bulk Email (Individual Per Recipient)
+// -----------------------------------------
 router.post(
   "/send",
   auth,
   allowRoles("isAdmin", "isStaff", "isSubAdmin", "isSuperStakeholder"),
   async (req, res) => {
     try {
-      const { subject, body, category } = req.body; // allow filtering by category
+      const { subject, body, category } = req.body;
+      if (!subject || !body) return res.status(400).json({ message: "Subject and body are required" });
 
-      if (!subject || !body)
-        return res.status(400).json({ message: "Subject and body are required" });
-
-      // filter by category if provided
       const query = { company: req.user.company };
       if (category) query.category = category;
 
       const clients = await ClientEmail.find(query).select("email name");
-
-      if (!clients.length)
-        return res.status(404).json({ message: "No client emails found for your company" });
+      if (!clients.length) return res.status(404).json({ message: "No client emails found" });
 
       const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
@@ -119,31 +119,37 @@ router.post(
       let sent = 0;
 
       for (const client of clients) {
-        const clientName = client.name && client.name.trim().length > 0
-          ? client.name
-          : "Valued Customer";
+        const clientName = client.name?.trim()?.length > 0 ? client.name : "Valued Customer";
+        const personalizedBody = body.replace(/{{\s*First Name\/Company Name\s*}}/gi, clientName);
 
-        const personalizedBody = body.replace(
-          /{{\s*First Name\/Company Name\s*}}/gi,
-          clientName
-        );
+        const trackingId = uuidv4();
+        const openURL = `${BASE_URL}/api/bulk-email/track-open/${trackingId}`;
+        const clickURL = `${BASE_URL}/api/bulk-email/track-click/${trackingId}`;
+        const unsubscribeURL = `${BASE_URL}/api/bulk-email/unsubscribe/${client.email}`;
+
+        await EmailLog.create({
+          recipient: client.email,
+          subject,
+          company: req.user.company,
+          sentAt: new Date(),
+          trackingId,
+        });
 
         const mailOptions = {
           from: `"${senderName}" <${senderEmail}>`,
           to: client.email,
           subject,
-          text: personalizedBody,
+          headers: { "List-Unsubscribe": `<${unsubscribeURL}>` },
           html: `
-  ${personalizedBody.replace(/\n/g, "<br>")}
-  <br><br>
-  <hr>
-  <p style="font-size:12px;color:#555;">
-    If you no longer want to receive emails from us, click here to unsubscribe: 
-    <a href="https://techwireapii.onrender.com/api/bulk-email/unsubscribe/${client.email}">
-      Unsubscribe
-    </a>
-  </p>
-`,
+            <div style="font-family: Arial; line-height:1.6;">
+              ${personalizedBody.replace(/\n/g, "<br>")}
+              <br><br>
+              <a href="${clickURL}" style="font-weight:bold; color:#0066cc;">Click Here</a>
+              <img src="${openURL}" width="1" height="1" style="opacity:0;" />
+              <br><br>
+              <a href="${unsubscribeURL}" style="color:red;">Unsubscribe</a>
+            </div>
+          `,
         };
 
         await transporter.sendMail(mailOptions);
@@ -158,31 +164,73 @@ router.post(
   }
 );
 
+// -----------------------------------------
+// Open Tracking Pixel
+// -----------------------------------------
+router.get("/track-open/:id", async (req, res) => {
+  try {
+    await EmailLog.findOneAndUpdate({ trackingId: req.params.id }, { opened: true, openTime: new Date() });
+    const pixel = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2NDYUAAAAASUVORK5CYII=",
+      "base64"
+    );
+    res.set("Content-Type", "image/png");
+    res.send(pixel);
+  } catch (err) {
+    console.error("❌ Track-open error:", err);
+    res.sendStatus(500);
+  }
+});
 
-// ------------------------------
-// Unsubscribe (remove email from list)
-// ------------------------------
+// -----------------------------------------
+// Click Tracking
+// -----------------------------------------
+router.get("/track-click/:id", async (req, res) => {
+  try {
+    await EmailLog.findOneAndUpdate({ trackingId: req.params.id }, { clicked: true, clickTime: new Date() });
+    res.redirect(FRONTEND_URL); // ✅ Redirect to actual frontend
+  } catch (err) {
+    console.error("❌ Track-click error:", err);
+    res.status(500).send("Error tracking click");
+  }
+});
+
+// -----------------------------------------
+// Unsubscribe (also tracked)
+// -----------------------------------------
 router.get("/unsubscribe/:email", async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
+    await EmailLog.updateMany({ recipient: email }, { unsubscribed: true, unsubTime: new Date() });
 
     const removed = await ClientEmail.findOneAndDelete({ email });
-
     if (!removed) {
-      return res.send(`
-        <h2>Email Not Found</h2>
-        <p>The email <strong>${email}</strong> is not in our mailing list.</p>
-      `);
+      return res.send(`<h2>Email Not Found</h2><p>The email <strong>${email}</strong> is not in our mailing list.</p>`);
     }
 
-    res.send(`
-      <h2>You Have Been Unsubscribed</h2>
-      <p>The email <strong>${email}</strong> has been removed from our mailing list.</p>
-    `);
+    res.send(`<h2>You Have Been Unsubscribed</h2><p>The email <strong>${email}</strong> has been removed from our mailing list.</p>`);
   } catch (err) {
     console.error("❌ Unsubscribe Error:", err);
     res.status(500).send("Server error.");
   }
 });
+
+// -----------------------------------------
+// Fetch Email Logs (Admin/Staff Only)
+// -----------------------------------------
+router.get(
+  "/logs",
+  auth,
+  allowRoles("isAdmin", "isStaff", "isSubAdmin", "isSuperStakeholder"),
+  async (req, res) => {
+    try {
+      const logs = await EmailLog.find({ company: req.user.company }).sort({ sentAt: -1 });
+      res.status(200).json(logs);
+    } catch (err) {
+      console.error("❌ Fetch logs error:", err);
+      res.status(500).json({ message: "Server error", error: err.message });
+    }
+  }
+);
 
 module.exports = router;
