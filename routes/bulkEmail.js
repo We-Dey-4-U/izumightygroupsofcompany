@@ -47,7 +47,8 @@ router.post(
         company: req.user.company,
       });
 
-      if (exists) return res.status(409).json({ message: "Email already exists for your company" });
+      if (exists)
+        return res.status(409).json({ message: "Email already exists for your company" });
 
       const clientEmail = new ClientEmail({
         email: email.toLowerCase(),
@@ -58,6 +59,7 @@ router.post(
       });
 
       await clientEmail.save();
+      console.log("Email added successfully:", clientEmail.email);
       res.status(201).json({ message: "Email added successfully", clientEmail });
     } catch (err) {
       console.error("❌ Add client email error:", err);
@@ -75,7 +77,9 @@ router.get(
   allowRoles("isAdmin", "isStaff", "isSubAdmin", "isSuperStakeholder"),
   async (req, res) => {
     try {
+      console.log("Fetching client emails for company:", req.user.company);
       const emails = await ClientEmail.find({ company: req.user.company }).sort({ createdAt: -1 });
+      console.log("Fetched emails count:", emails.length);
       res.status(200).json(emails);
     } catch (err) {
       console.error("❌ Fetch client emails error:", err);
@@ -94,7 +98,8 @@ router.post(
   async (req, res) => {
     try {
       const { subject, body, category } = req.body;
-      if (!subject || !body) return res.status(400).json({ message: "Subject and body are required" });
+      if (!subject || !body)
+        return res.status(400).json({ message: "Subject and body are required" });
 
       const query = { company: req.user.company };
       if (category) query.category = category;
@@ -119,11 +124,16 @@ router.post(
       let sent = 0;
 
       for (const client of clients) {
-        const clientName = client.name?.trim()?.length > 0 ? client.name : "Valued Customer";
-        const personalizedBody = body.replace(/{{\s*First Name\/Company Name\s*}}/gi, clientName);
+        const clientName =
+          client.name?.trim()?.length > 0 ? client.name : "Valued Customer";
+        const personalizedBody = body.replace(
+          /{{\s*First Name\/Company Name\s*}}/gi,
+          clientName
+        );
 
         const trackingId = uuidv4();
-        const openURL = `${BASE_URL}/api/bulk-email/track-open/${trackingId}`;
+        // Cache-busting open pixel
+        const openURL = `${BASE_URL}/api/bulk-email/track-open/${trackingId}?t=${Date.now()}`;
         const clickURL = `${BASE_URL}/api/bulk-email/track-click/${trackingId}`;
         const unsubscribeURL = `${BASE_URL}/api/bulk-email/unsubscribe/${client.email}`;
 
@@ -153,6 +163,7 @@ router.post(
         };
 
         await transporter.sendMail(mailOptions);
+        console.log("Email sent to:", client.email);
         sent++;
       }
 
@@ -169,13 +180,27 @@ router.post(
 // -----------------------------------------
 router.get("/track-open/:id", async (req, res) => {
   try {
-    await EmailLog.findOneAndUpdate({ trackingId: req.params.id }, { opened: true, openTime: new Date() });
+    const { id } = req.params;
+    console.log("Tracking pixel requested for ID:", id, new Date());
+
+    await EmailLog.findOneAndUpdate(
+      { trackingId: id },
+      { opened: true, openTime: new Date() }
+    );
+
     const pixel = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2NDYUAAAAASUVORK5CYII=",
       "base64"
     );
+
+    // No-cache headers to avoid image caching
     res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
     res.send(pixel);
+
+    console.log("Open logged for trackingId:", id);
   } catch (err) {
     console.error("❌ Track-open error:", err);
     res.sendStatus(500);
@@ -187,8 +212,15 @@ router.get("/track-open/:id", async (req, res) => {
 // -----------------------------------------
 router.get("/track-click/:id", async (req, res) => {
   try {
-    await EmailLog.findOneAndUpdate({ trackingId: req.params.id }, { clicked: true, clickTime: new Date() });
-    res.redirect(FRONTEND_URL); // ✅ Redirect to actual frontend
+    const { id } = req.params;
+    console.log("Track click requested for ID:", id, new Date());
+
+    await EmailLog.findOneAndUpdate(
+      { trackingId: id },
+      { clicked: true, clickTime: new Date() }
+    );
+
+    res.redirect(FRONTEND_URL); // Redirect to actual frontend
   } catch (err) {
     console.error("❌ Track-click error:", err);
     res.status(500).send("Error tracking click");
@@ -201,14 +233,27 @@ router.get("/track-click/:id", async (req, res) => {
 router.get("/unsubscribe/:email", async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
-    await EmailLog.updateMany({ recipient: email }, { unsubscribed: true, unsubTime: new Date() });
+    console.log("Unsubscribe requested for:", email);
+
+    await EmailLog.updateMany(
+      { recipient: email },
+      { unsubscribed: true, unsubTime: new Date() }
+    );
 
     const removed = await ClientEmail.findOneAndDelete({ email });
     if (!removed) {
-      return res.send(`<h2>Email Not Found</h2><p>The email <strong>${email}</strong> is not in our mailing list.</p>`);
+      console.warn("Unsubscribe: email not found", email);
+      return res.send(`
+        <h2>Email Not Found</h2>
+        <p>The email <strong>${email}</strong> is not in our mailing list.</p>
+      `);
     }
 
-    res.send(`<h2>You Have Been Unsubscribed</h2><p>The email <strong>${email}</strong> has been removed from our mailing list.</p>`);
+    console.log("Unsubscribed successfully:", email);
+    res.send(`
+      <h2>You Have Been Unsubscribed</h2>
+      <p>The email <strong>${email}</strong> has been removed from our mailing list.</p>
+    `);
   } catch (err) {
     console.error("❌ Unsubscribe Error:", err);
     res.status(500).send("Server error.");
@@ -224,7 +269,9 @@ router.get(
   allowRoles("isAdmin", "isStaff", "isSubAdmin", "isSuperStakeholder"),
   async (req, res) => {
     try {
+      console.log("Fetching email logs for company:", req.user.company);
       const logs = await EmailLog.find({ company: req.user.company }).sort({ sentAt: -1 });
+      console.log("Logs fetched:", logs.length);
       res.status(200).json(logs);
     } catch (err) {
       console.error("❌ Fetch logs error:", err);
