@@ -132,7 +132,7 @@ router.post(
         );
 
         const trackingId = uuidv4();
-        // Cache-busting open pixel
+
         const openURL = `${BASE_URL}/api/bulk-email/track-open/${trackingId}?t=${Date.now()}`;
         const clickURL = `${BASE_URL}/api/bulk-email/track-click/${trackingId}`;
         const unsubscribeURL = `${BASE_URL}/api/bulk-email/unsubscribe/${client.email}`;
@@ -154,9 +154,27 @@ router.post(
             <div style="font-family: Arial; line-height:1.6;">
               ${personalizedBody.replace(/\n/g, "<br>")}
               <br><br>
-              <a href="${clickURL}" style="font-weight:bold; color:#0066cc;">Click Here</a>
+
+              <!-- Styled Button -->
+              <a 
+                href="${clickURL}" 
+                style="
+                  display:inline-block;
+                  padding:12px 20px;
+                  background:#0066cc;
+                  color:#ffffff !important;
+                  text-decoration:none;
+                  border-radius:6px;
+                  font-weight:bold;
+                  font-size:16px;
+                "
+              >
+                Learn More
+              </a>
+
               <img src="${openURL}" width="1" height="1" style="opacity:0;" />
               <br><br>
+
               <a href="${unsubscribeURL}" style="color:red;">Unsubscribe</a>
             </div>
           `,
@@ -193,7 +211,6 @@ router.get("/track-open/:id", async (req, res) => {
       "base64"
     );
 
-    // No-cache headers to avoid image caching
     res.set("Content-Type", "image/png");
     res.set("Cache-Control", "no-cache, no-store, must-revalidate");
     res.set("Pragma", "no-cache");
@@ -208,9 +225,6 @@ router.get("/track-open/:id", async (req, res) => {
 });
 
 // -----------------------------------------
-// Click Tracking
-// -----------------------------------------
-// -----------------------------------------
 // Click Tracking (Marks as clicked AND opened)
 // -----------------------------------------
 router.get("/track-click/:id", async (req, res) => {
@@ -218,25 +232,25 @@ router.get("/track-click/:id", async (req, res) => {
     const { id } = req.params;
     console.log("Track click requested for ID:", id, new Date());
 
-    // Update email log: mark both clicked and opened
     await EmailLog.findOneAndUpdate(
       { trackingId: id },
       { 
         clicked: true, 
         clickTime: new Date(),
-        opened: true,      // ✅ mark as opened
-        openTime: new Date() // ✅ set open time
+        opened: true,
+        openTime: new Date()
       }
     );
 
-    res.redirect(FRONTEND_URL); // Redirect to actual frontend
+    res.redirect(FRONTEND_URL);
   } catch (err) {
     console.error("❌ Track-click error:", err);
     res.status(500).send("Error tracking click");
   }
 });
+
 // -----------------------------------------
-// Unsubscribe (also tracked)
+// Unsubscribe
 // -----------------------------------------
 router.get("/unsubscribe/:email", async (req, res) => {
   try {
@@ -269,7 +283,7 @@ router.get("/unsubscribe/:email", async (req, res) => {
 });
 
 // -----------------------------------------
-// Fetch Email Logs (Admin/Staff Only)
+// Fetch Email Logs
 // -----------------------------------------
 router.get(
   "/logs",
