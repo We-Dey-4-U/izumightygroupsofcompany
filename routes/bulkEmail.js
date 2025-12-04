@@ -202,19 +202,20 @@ router.post(
                     </div>
                     <br>
                     <p style="font-size:13px;color:#777;">
-                      If this email was not intended for you, you can ignore it.
                     </p>
                   </td>
                 </tr>
 
-                <!-- FOOTER -->
-                <tr>
-                  <td bgcolor="#f0f3f7" style="padding:20px;text-align:center;font-size:13px;color:#666;font-family:Arial;">
-                    © ${new Date().getFullYear()} ${senderName}. All rights reserved.
-                    <br>
-                    <a href="${unsubscribeURL}" style="color:red;">Unsubscribe</a>
-                  </td>
-                </tr>
+               <!-- FOOTER -->
+<tr>
+  <td bgcolor="#f0f3f7" style="padding:20px;text-align:center;font-size:13px;color:#666;font-family:Arial;">
+    © ${new Date().getFullYear()} ${senderName}. All rights reserved.
+    <br>
+    ${process.env.COMPANY_ADDRESS || "123 Techwire Street, Lagos, Nigeria"}
+    <br>
+    <a href="${unsubscribeURL}" style="color:red;">Unsubscribe</a>
+  </td>
+</tr>
 
               </table>
 
