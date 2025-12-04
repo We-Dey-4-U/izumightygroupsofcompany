@@ -210,14 +210,23 @@ router.get("/track-open/:id", async (req, res) => {
 // -----------------------------------------
 // Click Tracking
 // -----------------------------------------
+// -----------------------------------------
+// Click Tracking (Marks as clicked AND opened)
+// -----------------------------------------
 router.get("/track-click/:id", async (req, res) => {
   try {
     const { id } = req.params;
     console.log("Track click requested for ID:", id, new Date());
 
+    // Update email log: mark both clicked and opened
     await EmailLog.findOneAndUpdate(
       { trackingId: id },
-      { clicked: true, clickTime: new Date() }
+      { 
+        clicked: true, 
+        clickTime: new Date(),
+        opened: true,      // ✅ mark as opened
+        openTime: new Date() // ✅ set open time
+      }
     );
 
     res.redirect(FRONTEND_URL); // Redirect to actual frontend
@@ -226,7 +235,6 @@ router.get("/track-click/:id", async (req, res) => {
     res.status(500).send("Error tracking click");
   }
 });
-
 // -----------------------------------------
 // Unsubscribe (also tracked)
 // -----------------------------------------
