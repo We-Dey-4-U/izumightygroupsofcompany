@@ -134,7 +134,7 @@ router.post(
       const senderName =
         process.env.SMTP_NAME || "Techwire ICT Solutions Limited";
 
-      const logoURL = process.env.COMPANY_LOGO_URL || "https://postimg.cc/Z0M757wJ";
+      const logoURL = process.env.COMPANY_LOGO_URL || "https://i.postimg.cc/wT6SFnJR/IMG-20251204-WA0011(1).jpg";
 
       let sent = 0;
 
