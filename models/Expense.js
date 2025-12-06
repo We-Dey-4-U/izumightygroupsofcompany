@@ -1,4 +1,3 @@
-// models/Expense.js
 const mongoose = require("mongoose");
 
 const expenseSchema = new mongoose.Schema(
@@ -9,7 +8,13 @@ const expenseSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
+
+    // 🔹 Reference the user who entered the expense
+    enteredByUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
 
     description: { type: String, required: true },
 
@@ -33,8 +38,6 @@ const expenseSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-
-    enteredBy: { type: String, required: true },
 
     approvedBy: { type: String, default: "" },
 

@@ -1,75 +1,61 @@
 const express = require("express");
 const router = express.Router();
 const { Report } = require("../models/Report");
+const { User } = require("../models/user");
 const { auth, isAdmin, isStaff, isSubAdmin, isSuperStakeholder } = require("../middleware/auth");
 
-// ----- GET ALL REPORTS ----- (Admins only)
+// ---- GET ALL REPORTS (Admin / SubAdmin / SuperStakeholder of SAME COMPANY ONLY) ----
 router.get("/", auth, async (req, res) => {
-  // Allow ONLY admin, subadmin, or super stakeholder
-  if (
-    !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
-    !req.user.isSuperStakeholder
-  ) {
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
   }
 
-  console.log("📌 [GET /reports] Request received by:", req.user?.email);
-
   try {
     const reports = await Report.find()
-      .sort({ date: -1 })
-      .populate("submittedBy", "name email");
+      .populate("submittedBy", "name email company")
+      .sort({ dateSubmitted: -1 });
 
-    console.log(`✅ [GET /reports] Returning ${reports.length} reports`);
-    res.status(200).json(reports);
+    const companyReports = reports.filter(
+      (r) => r.submittedBy?.company === req.user.company
+    );
+
+    res.status(200).json(companyReports);
   } catch (error) {
-    console.error("❌ [GET /reports] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
 
-// ----- GET MY REPORTS ----- (Staff only)
+// ----- GET MY REPORTS (STAFF ONLY) -----
 router.get("/my", auth, isStaff, async (req, res) => {
   try {
-    const reports = await Report.find({ submittedBy: req.user._id })
-      .sort({ date: -1 })
-      .populate("submittedBy", "name email");
-
+    const reports = await Report.find({ submittedBy: req.user._id }).sort({ dateSubmitted: -1 });
     res.status(200).json(reports);
   } catch (error) {
-    console.error("❌ [GET /reports/my] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
 
-// ----- GET SINGLE REPORT -----
+// ----- GET SINGLE REPORT (Same company check) -----
 router.get("/:id", auth, async (req, res) => {
   try {
     const report = await Report.findById(req.params.id)
-      .populate("submittedBy", "name email");
+      .populate("submittedBy", "name email company");
 
-    if (!report) {
-      return res.status(404).json({ message: "Report not found" });
-    }
+    if (!report) return res.status(404).json({ message: "Report not found" });
+    if (report.submittedBy.company !== req.user.company) return res.status(403).json({ message: "Access denied: Different company" });
 
-    if (
-      report.submittedBy &&
-      report.submittedBy._id.toString() !== req.user._id &&
-      !req.user.isAdmin
-    ) {
+    if (req.user.isStaff && report.submittedBy._id.toString() !== req.user._id) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     res.status(200).json(report);
   } catch (error) {
-    console.error(`❌ [GET /reports/${req.params.id}] Error:`, error.message);
     res.status(500).json({ message: error.message });
   }
 });
 
-// ----- CREATE REPORT ----- (Staff only)
-router.post("/", isStaff, async (req, res) => {
+// ----- CREATE REPORT (STAFF ONLY — Tied to company) -----
+router.post("/", auth, isStaff, async (req, res) => {
   try {
     const {
       department,
@@ -82,15 +68,16 @@ router.post("/", isStaff, async (req, res) => {
       nextWeekTargets,
       supportNeeded,
       fileUploads,
-      rolePlayed,       // NEW FIELD
-      selfRating        // NEW FIELD
+      rolePlayed,
+      selfRating
     } = req.body;
 
     if (!department || !designation || !weekEnding || !summary) {
-      return res.status(400).json({
-        message: "Department, Designation, Week Ending, and Summary are required",
-      });
+      return res.status(400).json({ message: "Department, Designation, Week Ending, and Summary are required" });
     }
+
+    const staff = await User.findById(req.user._id).select("company");
+    if (!staff) return res.status(400).json({ message: "User not found" });
 
     const report = new Report({
       staffName: req.user.name,
@@ -104,79 +91,65 @@ router.post("/", isStaff, async (req, res) => {
       nextWeekTargets: nextWeekTargets || "",
       supportNeeded: supportNeeded || "",
       fileUploads: fileUploads || [],
-      supervisorComment: "",
-      performanceRating: "Good",
-      rolePlayed: rolePlayed || "",    // NEW
-      selfRating: selfRating || 5,     // NEW
+      rolePlayed: rolePlayed || "",
+      selfRating: selfRating || 5,
       submittedBy: req.user._id,
     });
 
-    const savedReport = await report.save();
-    res.status(201).json(savedReport);
+    const saved = await report.save();
+    res.status(201).json(saved);
   } catch (error) {
-    console.error("❌ [POST /reports] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
 
-// ----- UPDATE REPORT ----- (Admin OR Staff)
+// ----- UPDATE REPORT (Company Restricted) -----
 router.put("/:id", auth, async (req, res) => {
   try {
-    const report = await Report.findById(req.params.id);
+    const report = await Report.findById(req.params.id)
+      .populate("submittedBy", "company");
+
     if (!report) return res.status(404).json({ message: "Report not found" });
+    if (report.submittedBy.company !== req.user.company) return res.status(403).json({ message: "Access denied (different company)" });
 
-    // ✅ Admin, SubAdmin, and SuperStakeholder can update supervisorComment & performanceRating
     if (req.user.isAdmin || req.user.isSubAdmin || req.user.isSuperStakeholder) {
-      if (req.body.supervisorComment !== undefined)
-        report.supervisorComment = req.body.supervisorComment;
+      if (req.body.supervisorComment !== undefined) report.supervisorComment = req.body.supervisorComment;
+      if (req.body.performanceRating !== undefined) report.performanceRating = req.body.performanceRating;
+    }
 
-      if (req.body.performanceRating !== undefined)
-        report.performanceRating = req.body.performanceRating;
-
-    } else if (req.user._id.toString() === report.submittedBy.toString()) {
-      // Staff can update their own content including new fields
-      const allowedFields = [
-        "department",
-        "designation",
-        "weekEnding",
-        "summary",
-        "tasksCompleted",
-        "tasksInProgress",
-        "challenges",
-        "nextWeekTargets",
-        "supportNeeded",
-        "fileUploads",
-        "rolePlayed",
-        "selfRating"
-      ];
-
-      allowedFields.forEach((field) => {
-        if (req.body[field] !== undefined) report[field] = req.body[field];
-      });
-
-    } else {
+    if (req.user.isStaff && report.submittedBy._id.toString() !== req.user._id) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const updatedReport = await report.save();
-    res.status(200).json(updatedReport);
+    const editable = [
+      "department", "designation", "weekEnding", "summary", "tasksCompleted",
+      "tasksInProgress", "challenges", "nextWeekTargets", "supportNeeded",
+      "fileUploads", "rolePlayed", "selfRating"
+    ];
+
+    editable.forEach((field) => {
+      if (req.body[field] !== undefined) report[field] = req.body[field];
+    });
+
+    const updated = await report.save();
+    res.status(200).json(updated);
   } catch (error) {
-    console.error(`❌ [PUT /reports/:id] Error:`, error.message);
     res.status(500).json({ message: error.message });
   }
 });
 
-// ----- DELETE REPORT ----- (Admin only)
-router.delete("/:id", isAdmin, async (req, res) => {
+// ----- DELETE REPORT (ADMIN ONLY + Same company) -----
+router.delete("/:id", auth, isAdmin, async (req, res) => {
   try {
-    const deletedReport = await Report.findByIdAndDelete(req.params.id);
-    if (!deletedReport) {
-      return res.status(404).json({ message: "Report not found" });
-    }
+    const report = await Report.findById(req.params.id)
+      .populate("submittedBy", "company");
 
+    if (!report) return res.status(404).json({ message: "Report not found" });
+    if (report.submittedBy.company !== req.user.company) return res.status(403).json({ message: "Cannot delete report from another company" });
+
+    await Report.findByIdAndDelete(req.params.id);
     res.status(200).json({ message: "Report deleted successfully" });
   } catch (error) {
-    console.error(`❌ [DELETE /reports/:id] Error:`, error.message);
     res.status(500).json({ message: error.message });
   }
 });

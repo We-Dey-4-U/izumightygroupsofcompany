@@ -5,7 +5,7 @@ const multer = require("multer");
 const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
-const { auth, isStaff, isAdmin,isSubAdmin,isSuperStakeholder } = require("../middleware/auth");
+const { auth, isStaff, isAdmin, isSubAdmin, isSuperStakeholder } = require("../middleware/auth");
 const EmployeeInfo = require("../models/EmployeeInfo");
 
 // ----------------------
@@ -135,41 +135,32 @@ router.post(
   }
 );
 
-
-
-
-// GET all employee info (admin)
+// ----------------------
+// GET all employee info (admin/subadmin/stakeholder) with company isolation
+// ----------------------
 router.get("/all", auth, async (req, res) => {
-  // Block if NOT admin AND NOT subadmin AND NOT super stakeholder
-  if (
-    !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
-    !req.user.isSuperStakeholder
-  ) {
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
   }
 
   try {
-    const allEmployees = await EmployeeInfo.find().populate(
-      "user",
-      "name email role"
-    );
+    // Fetch all employees, populate user to get company
+    let allEmployees = await EmployeeInfo.find().populate("user", "name email company role");
+
+    // 🔥 Filter employees strictly by logged-in user's company
+    allEmployees = allEmployees.filter(emp => emp.user?.company === req.user.company);
+
     res.status(200).json(allEmployees);
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
 });
 
-
-
+// ----------------------
 // GET logged-in staff's info
+// ----------------------
 router.get("/me", auth, async (req, res) => {
-  // Block if NOT admin AND NOT staff AND NOT subadmin
-  if (
-    !req.user.isAdmin &&
-    !req.user.isStaff &&
-    !req.user.isSubAdmin
-  ) {
+  if (!req.user.isAdmin && !req.user.isStaff && !req.user.isSubAdmin) {
     return res.status(403).json({ message: "Access denied" });
   }
 
@@ -183,6 +174,44 @@ router.get("/me", auth, async (req, res) => {
     res.status(200).json(info);
   } catch (err) {
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ----------------------
+// MONTHLY EMPLOYEE SUMMARY (optional)
+// ----------------------
+router.get("/summary/monthly", auth, async (req, res) => {
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  try {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0,0,0,0);
+
+    const endOfMonth = new Date(startOfMonth);
+    endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+
+    let employees = await EmployeeInfo.find({
+      createdAt: { $gte: startOfMonth, $lt: endOfMonth }
+    }).populate("user", "company");
+
+    // Filter by user's company
+    employees = employees.filter(emp => emp.user?.company === req.user.company);
+
+    const summary = {
+      totalSubmitted: employees.length,
+      employees: employees.map(emp => ({
+        name: emp.personal.fullName,
+        department: emp.employment.department,
+        position: emp.employment.position,
+      }))
+    };
+
+    res.status(200).json(summary);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

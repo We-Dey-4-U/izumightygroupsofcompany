@@ -73,6 +73,9 @@ inventoryProductSchema.pre("validate", function (next) {
   next();
 });
 
+
+
+
 // ----------------------
 // Pre-save hook
 // Always updates itemsAvailable
@@ -93,5 +96,7 @@ inventoryProductSchema.methods.sellItems = async function (quantity = 1) {
   this.itemsAvailable = this.quantityInStock - this.itemsSold;
   await this.save();
 };
+
+
 
 module.exports = mongoose.model("InventoryProduct", inventoryProductSchema);

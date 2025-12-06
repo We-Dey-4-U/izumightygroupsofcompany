@@ -6,7 +6,7 @@ const payrollSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
- // company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
+
   month: { type: String, required: true },
   year: { type: Number, required: true },
 

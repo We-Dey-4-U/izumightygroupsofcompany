@@ -3,34 +3,31 @@ const mongoose = require("mongoose");
 const reportSchema = new mongoose.Schema(
   {
     staffName: { type: String, required: true },
-    company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
     department: { type: String, required: true },
     designation: { type: String, required: true },
     weekEnding: { type: Date, required: true },
-    summary: { type: String, required: true }, // Summary of weekly activities
-    tasksCompleted: [{ type: String }], // Array of completed tasks
-    tasksInProgress: [{ type: String }], // Array of in-progress tasks
+    summary: { type: String, required: true },
+    tasksCompleted: [{ type: String }],
+    tasksInProgress: [{ type: String }],
     challenges: { type: String, default: "" },
     nextWeekTargets: { type: String, default: "" },
     supportNeeded: { type: String, default: "" },
     supervisorComment: { type: String, default: "" },
-    dateSubmitted: { type: Date, default: Date.now }, // Auto-generated timestamp
-    fileUploads: [{ type: String }], // URLs to uploaded files
+    dateSubmitted: { type: Date, default: Date.now },
+    fileUploads: [{ type: String }],
     performanceRating: {
       type: String,
       enum: ["Excellent", "Good", "Fair", "Poor"],
       default: "Good",
     },
-      // ✅ Role Played Enum
     rolePlayed: {
       type: String,
       enum: ["Assisted", "Led", "Supervised Others", "Performed Alone"],
-      default: "", // Not required
+      default: "",
     },
-
     selfRating: {
       type: Number,
-      enum: [1,2,3,4,5,6,7,8,9,10], // user must pick from 1–10
+      enum: [1,2,3,4,5,6,7,8,9,10],
       required: true,
       default: 5,
     },

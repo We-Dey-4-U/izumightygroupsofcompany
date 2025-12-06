@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { auth, isAdmin, isSuperStakeholder, isStaff } = require("../middleware/auth");
+const { auth, isAdmin, isSuperStakeholder, isSubAdmin } = require("../middleware/auth");
 
 const Sale = require("../models/Sale");
 const InventoryProduct = require("../models/InventoryProduct");
@@ -15,6 +15,8 @@ const generateSaleId = () => {
 // ======================================================
 router.post("/create", auth, async (req, res) => {
   try {
+    console.log("🔵 [SALE CREATE] req.user:", req.user);
+
     const {
       items,
       tax = 0,
@@ -32,17 +34,28 @@ router.post("/create", auth, async (req, res) => {
 
     for (const item of items) {
 
-      // -------------------------------------------------
-      // PRODUCT TYPE
-      // -------------------------------------------------
       if (item.type === "product") {
-        if (!item.productId) {
-          return res.status(400).json({ message: "Product ID is required for product items" });
-        }
+        console.log("🟡 Checking product:", item.productId);
 
-        const product = await InventoryProduct.findById(item.productId);
+        const product = await InventoryProduct.findById(item.productId)
+          .populate("createdBy", "company");
+
         if (!product) {
           return res.status(404).json({ message: `Product not found: ${item.productId}` });
+        }
+
+        console.log("   → product.company:", product.createdBy?.company);
+        console.log("   → req.user.company:", req.user.company);
+
+        // SAFE GUARD
+        if (!product.createdBy?.company || !req.user.company) {
+          console.log("❌ Company undefined during product check");
+          return res.status(403).json({ message: "System error: product-company mismatch" });
+        }
+
+        if (product.createdBy.company !== req.user.company) {
+          console.log("❌ Company mismatch");
+          return res.status(403).json({ message: "Product does not belong to your company" });
         }
 
         if (product.quantityInStock < item.quantity) {
@@ -51,40 +64,29 @@ router.post("/create", auth, async (req, res) => {
           });
         }
 
-        // Auto-fill pricing
         item.price = product.sellingPrice;
-        item.total = item.quantity * item.price;
+        item.total = item.price * item.quantity;
         subtotal += item.total;
 
-        // Deduct stock
         product.quantityInStock -= item.quantity;
         product.itemsSold += item.quantity;
         await product.save();
       }
 
-      // -------------------------------------------------
-      // SERVICE TYPE
-      // -------------------------------------------------
       else if (item.type === "service") {
         if (!item.serviceName || item.serviceName.trim() === "") {
-          return res.status(400).json({ message: "Service name is required for service items" });
+          return res.status(400).json({ message: "Service name is required" });
         }
 
         if (!item.price || item.price <= 0) {
           return res.status(400).json({ message: "Service price must be greater than 0" });
         }
 
-        // Compute total normally
         item.total = item.price * item.quantity;
         subtotal += item.total;
-
-        // productId stays null for services
         item.productId = null;
       }
 
-      // -------------------------------------------------
-      // UNKNOWN TYPE
-      // -------------------------------------------------
       else {
         return res.status(400).json({ message: `Invalid item type: ${item.type}` });
       }
@@ -94,6 +96,7 @@ router.post("/create", auth, async (req, res) => {
 
     const sale = await Sale.create({
       saleId: generateSaleId(),
+      company: req.user.company,
       items,
       subtotal,
       tax,
@@ -105,87 +108,71 @@ router.post("/create", auth, async (req, res) => {
       createdBy: req.user._id,
     });
 
+    console.log("🟢 SALE CREATED:", sale.saleId);
     res.status(201).json(sale);
 
   } catch (err) {
+    console.log("🔥 [SALE CREATE ERROR]:", err);
     res.status(500).json({ message: err.message });
   }
 });
 
 // ======================================================
-// GET ALL SALES (Admin + SuperStakeholder Only)
+// GET ALL SALES
 // ======================================================
 router.get("/all", auth, async (req, res) => {
-  if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder && !req.user.isSubAdmin) {
     return res.status(403).json({ message: "Access denied" });
   }
 
   try {
-    const sales = await Sale.find()
-      .populate("createdBy", "name email")
+    console.log("🔵 [GET ALL SALES] User company:", req.user.company);
+
+    let sales = await Sale.find()
+      .populate("createdBy", "name email company")
       .populate("items.productId", "name productModel category")
       .sort({ createdAt: -1 });
 
+    sales = sales.filter(sale => {
+      console.log("🟡 sale.company:", sale.company);
+      return sale.company === req.user.company;
+    });
+
     res.status(200).json(sales);
+
   } catch (err) {
+    console.log("🔥 [GET SALES ERROR]:", err);
     res.status(500).json({ message: err.message });
   }
 });
 
 // ======================================================
-// GET A SINGLE SALE
+// GET SINGLE SALE
 // ======================================================
 router.get("/:saleId", auth, async (req, res) => {
   try {
     const sale = await Sale.findOne({ saleId: req.params.saleId })
-      .populate("createdBy", "name email")
+      .populate("createdBy", "name email company")
       .populate("items.productId", "name productModel category");
 
     if (!sale) return res.status(404).json({ message: "Sale not found" });
 
+    console.log("🔵 [GET SALE] sale.company:", sale.company);
+    console.log("🔵 req.user.company:", req.user.company);
+
+    if (!sale.company || !req.user.company) {
+      console.log("❌ Undefined company during single sale check");
+      return res.status(403).json({ message: "Company mismatch" });
+    }
+
+    if (sale.company !== req.user.company) {
+      return res.status(403).json({ message: "Access denied: different company" });
+    }
+
     res.status(200).json(sale);
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// ======================================================
-// DELETE A SALE (Optional)
-// ======================================================
-router.delete("/:saleId", auth, isAdmin, async (req, res) => {
-  try {
-    const sale = await Sale.findOne({ saleId: req.params.saleId });
-    if (!sale) return res.status(404).json({ message: "Sale not found" });
-
-    await Sale.deleteOne({ saleId: req.params.saleId });
-
-    res.status(200).json({ message: "Sale deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// ======================================================
-// GET TOTAL SALES ANALYTICS (Sum)
-// ======================================================
-router.get("/analytics/total-sales", auth, async (req, res) => {
-  if (
-    !req.user.isAdmin &&
-    !req.user.isSuperStakeholder &&
-    !req.user.isSubAdmin
-  ) {
-    return res.status(403).json({ message: "Access denied" });
-  }
-
-  try {
-    const totalSales = await Sale.aggregate([
-      { $group: { _id: null, total: { $sum: "$totalAmount" } } }
-    ]);
-
-    res.status(200).json({
-      totalSales: totalSales[0]?.total || 0
-    });
-  } catch (err) {
+    console.log("🔥 [GET SALE ERROR]:", err);
     res.status(500).json({ message: err.message });
   }
 });
