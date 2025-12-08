@@ -192,71 +192,48 @@ router.get("/employee-summary", auth, async (req, res) => {
 // PAYROLL SUMMARY
 // -----------------------------
 router.get("/payroll-summary", auth, async (req, res) => {
-  // Allow ONLY admin or super stakeholder
   if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
   }
 
-  console.log("📌 [GET /analytics/payroll-summary] Requested by:", req.user?.email);
+  const startOfMonth = moment().startOf("month").toDate();
+  const endOfMonth = moment().endOf("month").toDate();
+  const company = req.user.company;
 
   try {
-    const startOfMonth = moment().startOf("month").toDate();
-    const endOfMonth = moment().endOf("month").toDate();
-
-    const company = req.user.company;
-
-    // 🔥 AGGREGATION WITH COMPANY ISOLATION
     const payrolls = await Payroll.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: startOfMonth, $lte: endOfMonth }
-        }
-      },
-
-      // JOIN USER TABLE
+      { $match: { createdAt: { $gte: startOfMonth, $lte: endOfMonth } } },
       {
         $lookup: {
           from: "users",
           localField: "employeeId",
           foreignField: "_id",
-          as: "employee"
-        }
+          as: "employee",
+        },
       },
-
       { $unwind: "$employee" },
-
-      // 🔥 FILTER BY COMPANY (ISOLATION)
-      {
-        $match: {
-          "employee.company": company
-        }
-      },
-
+      { $match: { "employee.company": company } },
       {
         $group: {
           _id: null,
           totalGross: { $sum: "$grossSalary" },
           totalNet: { $sum: "$netPay" },
-          avgNetPay: { $avg: "$netPay" },
-          employeeCount: { $addToSet: "$employeeId" }
-        }
-      }
+          totalTaxDeducted: {
+            $sum: { $add: ["$taxDeduction", "$pensionDeduction", "$otherDeductions"] },
+          },
+          employeeCount: { $addToSet: "$employeeId" },
+        },
+      },
     ]);
 
-    const data = payrolls[0] || {
-      totalGross: 0,
-      totalNet: 0,
-      avgNetPay: 0,
-      employeeCount: []
-    };
+    const data = payrolls[0] || { totalGross: 0, totalNet: 0, totalTaxDeducted: 0, employeeCount: [] };
 
     res.status(200).json({
       totalGross: data.totalGross,
       totalNet: data.totalNet,
-      avgNetPay: data.avgNetPay,
-      totalEmployeesPaid: data.employeeCount.length
+      totalTaxDeducted: data.totalTaxDeducted, // ✅ New field
+      totalEmployeesPaid: data.employeeCount.length,
     });
-
   } catch (error) {
     console.error("❌ Payroll Summary Error:", error.message);
     res.status(500).json({ message: error.message });
