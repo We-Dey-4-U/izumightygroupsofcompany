@@ -27,7 +27,7 @@ router.post("/", async (req, res) => {
     // Generate token (include company in payload)
     const token = generateAuthToken(user);
 
-    // Respond with user info
+    // Respond with user info including SuperAdmin
     res.status(200).json({
       _id: user._id,
       name: user.name,
@@ -36,7 +36,8 @@ router.post("/", async (req, res) => {
       isStaff: user.isStaff,
       isSuperStakeholder: user.isSuperStakeholder,
       isSubAdmin: user.isSubAdmin,
-      company: user.company, // 🔥 ADD THIs
+      isSuperAdmin: user.isSuperAdmin, // 🔥 Added SuperAdmin
+      company: user.company,            // 🔥 keep company
       token,
     });
   } catch (err) {

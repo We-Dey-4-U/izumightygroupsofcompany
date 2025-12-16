@@ -1,6 +1,6 @@
-require("dotenv").config({ path: __dirname + "/.env" });
+require("dotenv").config({ path: __dirname + "/../.env" });
 const mongoose = require("mongoose");
-const Payroll = require("./models/Payroll"); // <-- adjust path if needee
+const TaxHistory = require("./models/TaxHistory"); // adjust path if needed
 
 const run = async () => {
   try {
@@ -16,12 +16,10 @@ const run = async () => {
     });
     console.log("✅ MongoDB Connected!");
 
-    // WARNING: THIS WILL DELETE ALL PAYROLL DOCUMENTS
-    console.log("⚠️ Deleting ALL Payroll documents...");
-    const result = await Payroll.deleteMany({});
+    console.log("⚠️ Deleting ALL TaxHistory documents...");
+    const result = await TaxHistory.deleteMany({});
 
-    console.log(`✅ Deleted ${result.deletedCount} payroll record(s).`);
-
+    console.log(`✅ Deleted ${result.deletedCount} tax history record(s).`);
     process.exit(0);
   } catch (err) {
     console.error("❌ Error:", err);

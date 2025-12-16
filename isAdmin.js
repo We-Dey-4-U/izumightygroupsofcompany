@@ -9,7 +9,7 @@ if (!process.env.CONNECTION_STRING) {
 }
 
 // Email of the account to make admin
-const targetEmail = "welbeck.staff1@example.com";
+const targetEmail = "welbeg233@electricity.com";
 
 const makeAdmin = async () => {
   try {
@@ -26,9 +26,9 @@ const makeAdmin = async () => {
       process.exit(1);
     }
 
-    user.isAdmin = false;
+    user.isAdmin = true;
     user.isSubAdmin = false; // Optional: reset subadmin
-     user.isStaff = true; // Optional: reset subadmin
+     user.isStaff = false; // Optional: reset subadmin
     user.isSuperStakeholder = false; // Optional: reset super stakeholder
     await user.save();
 

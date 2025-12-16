@@ -17,11 +17,18 @@ const userSchema = new mongoose.Schema(
       maxlength: 1024 
      },
 
-      company: {
+     company: {
   type: String,
-  required: true, // no enum, user can type any company
-  minlength: 2,
-  maxlength: 50
+  required: function () {
+    return !this.isSuperAdmin; // required only if not superadmin
+  },
+},
+companyId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Company",
+  required: function () {
+    return !this.isSuperAdmin; // required only if not superadmin
+  },
 },
       // 🔥 NEW FIELD — COMPANY ENUM
    // company: {
@@ -35,6 +42,7 @@ const userSchema = new mongoose.Schema(
     isStaff: { type: Boolean, default: false },
     isSuperStakeholder: { type: Boolean, default: false }, // ✅ NEW FIELD
      isSubAdmin: { type: Boolean, default: false },
+     isSuperAdmin: { type: Boolean, default: false } // Only superadmin can create companies
     //  isSuperAdmin: { type: Boolean, default: false }, // Only superadmin can onboard companies
   },
   { timestamps: true }

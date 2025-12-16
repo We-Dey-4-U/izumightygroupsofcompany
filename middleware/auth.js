@@ -82,6 +82,12 @@ const isSuperStakeholder = (req, res, next) => {
   });
 };
 
+// Only SuperAdmin
+const isSuperAdmin = (req, res, next) => {
+  if (req.user.isSuperAdmin) next();
+  else res.status(403).send("Access denied. Only super admin allowed.");
+};
+
 
 const isCompanyAdmin = (req, res, next) => {
   const user = req.user;
@@ -97,4 +103,4 @@ const companyDataAccess = (model) => async (req, res, next) => {
   next();
 };
 
-module.exports = { auth, isUser, isAdmin, isStaff, isSuperStakeholder,isSubAdmin,isCompanyAdmin ,companyDataAccess  };
+module.exports = { auth, isUser, isAdmin, isStaff, isSuperStakeholder,isSubAdmin,isCompanyAdmin ,companyDataAccess,  isSuperAdmin  };

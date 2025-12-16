@@ -20,6 +20,17 @@ const payrollRoutes = require("./routes/payroll"); // updated payroll router
 const inventoryRoutes = require("./routes/inventory");
 const salesRoutes = require("./routes/salesRoutes");
 const bulkEmailRoutes = require("./routes/bulkEmail"); // ✅ Bulk Email module
+// Near your other tax routes
+//const companyTaxRoutes = require("./routes/companyTax");
+// near your other routes
+const taxRoutes = require("./routes/tax");
+const taxSettings = require("./routes/taxSettings");
+const companyRoutes = require("./routes/company");
+
+const companyTaxRoutes = require("./routes/companyTax");          // PAYE summary
+const payeRemittanceRoutes = require("./routes/payeRemittance"); // Monthly remittance
+const firsExportRoutes = require("./routes/firsExport");         // FIRS CSV export
+const taxLedgerRoutes = require("./routes/taxLedger");
 
 const app = express();
 
@@ -77,6 +88,28 @@ app.use("/api/inventory", inventoryRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/sos", sosRoutes);
 app.use("/api/bulk-email", bulkEmailRoutes); // ✅ Added Bulk Email routes
+app.use("/api/tax", taxRoutes);
+app.use("/api/tax-settings", taxSettings); 
+// ... inside API ROUTES section
+app.use("/api/company-tax", companyTaxRoutes);
+// ✅ Company routes
+app.use("/api/company", companyRoutes);
+// Existing routes
+app.use("/api/tax-ledger", taxLedgerRoutes);
+
+
+/* ------------------------------
+   ✅ PAYE & Company Tax Routes
+------------------------------ */
+// GET monthly PAYE summary
+app.use("/api/company-tax", companyTaxRoutes);
+
+// GET monthly remittance & mark remitted
+app.use("/api/company-tax/paye-remittance", payeRemittanceRoutes);
+
+// Download FIRS CSV
+app.use("/api/firs-export", firsExportRoutes);
+
 /* -----------------------------------
    BASE ROUTES
 -------------------------------------- */

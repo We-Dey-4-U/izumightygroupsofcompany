@@ -11,6 +11,7 @@ const generateAuthToken = (user) => {
       isStaff: user.isStaff || false, // ✅ add staff flag safely
        isSuperStakeholder: user.isSuperStakeholder || false, // ✅ new flag
         isSubAdmin: user.isSubAdmin || false, // ✅ ADD THIS LINE
+         isSuperAdmin: user.isSuperAdmin || false, // 🔥 Add this!
          company: user.company, // 🔥 include company here
     },
     jwtSecretKey

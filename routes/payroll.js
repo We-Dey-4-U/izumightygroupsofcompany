@@ -5,17 +5,19 @@ const cors = require("cors");
 const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 const Payroll = require("../models/Payroll");
 const { User } = require("../models/user");
+const CompanyTaxLedger = require("../models/CompanyTaxLedger");
+const TaxSettings = require("../models/TaxSettings");
+const TaxHistory = require("../models/TaxHistory");
 const { v4: uuidv4 } = require("uuid");
 const axios = require("axios");
 const FormData = require("form-data");
+const taxUtil = require("../utils/taxCalculator");
+const { recordTax } = require("../services/taxLedger.service");
 
 // --- CORS Setup ---
-router.use(cors({
-  origin: "*", // adjust to your frontend domain in production
-  methods: ["GET", "POST", "PUT", "DELETE"],
-}));
+router.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "DELETE"] }));
 
-/** Helper: Upload payslip to Appwrite storage */
+/** Helper: Upload payslip to storage */
 async function uploadPayslip(fileBuffer, fileName) {
   const fileId = uuidv4();
   const formData = new FormData();
@@ -35,300 +37,412 @@ async function uploadPayslip(fileBuffer, fileName) {
         maxBodyLength: Infinity,
       }
     );
-
-    console.log(`✅ Payslip uploaded: ${fileName}, fileId: ${fileId}`);
     return `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${resp.data.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`;
   } catch (err) {
-    console.error("❌ Error uploading payslip:", err.message, err.stack);
+    console.error("Error uploading payslip:", err.message);
     throw err;
   }
 }
 
-/** 🔥 BULK PAYROLL SENDING */
-router.post("/send-bulk", auth, isAdmin, async (req, res) => {
-  try {
-    const { month, year } = req.body;
-    if (!month || !year) return res.status(400).json({ message: "Month and year are required" });
-
-    console.log(`🔹 Bulk payroll request by ${req.user.email} for company ${req.user.company}, month: ${month}, year: ${year}`);
-
-    const staff = await User.find({ company: req.user.company, isStaff: true }).select("_id name email");
-    if (!staff.length) {
-      console.warn(`⚠️ No staff found for company ${req.user.company}`);
-      return res.status(404).json({ message: "No staff found for your company" });
-    }
-
-    for (const employee of staff) {
-      const existing = await Payroll.findOne({ employeeId: employee._id, month, year });
-      if (existing) continue;
-
-      const payroll = new Payroll({
-        employeeId: employee._id,
-        month,
-        year,
-        basicSalary: 0,
-        housingAllowance: 0,
-        medicalAllowance: 0,
-        transportationAllowance: 0,
-        leaveAllowance: 0,
-        taxDeduction: 0,
-        pensionDeduction: 0,
-        otherDeductions: 0,
-        grossSalary: 0,
-        netPay: 0,
-      });
-
-      await payroll.save();
-
-      console.log(`✅ Payroll created for ${employee.email}, month: ${month}, year: ${year}`);
-
-      sendEmail({
-        to: employee.email,
-        subject: `Your Payslip for ${month}/${year}`,
-        body: `Hello ${employee.name},\nYour payslip for ${month}/${year} is ready.`,
-      });
-    }
-
-    res.json({ message: "Bulk payroll processing completed", count: staff.length });
-  } catch (err) {
-    console.error("❌ Bulk payroll error:", err.message, err.stack);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
-});
-
-/** POST /generate - Single Payslip */
+/** 🔹 SINGLE PAYROLL GENERATION */
+/** 🔹 SINGLE PAYROLL GENERATION */
 router.post("/generate", auth, isAdmin, async (req, res) => {
   try {
     const {
-      emails,
-      month,
-      year,
-      basicSalary = 0,
-      housingAllowance = 0,
-      medicalAllowance = 0,
-      transportationAllowance = 0,
-      leaveAllowance = 0,
-      taxDeduction = 0,
-      pensionDeduction = 0,
-      otherDeductions = 0,
+      emails, month, year, basicSalary = 0, housingAllowance = 0,
+      medicalAllowance = 0, transportationAllowance = 0, leaveAllowance = 0,
+      pensionDeduction = 0, otherDeductions = 0
     } = req.body;
 
     if (!emails || !emails.length) return res.status(400).json({ message: "Email(s) are required" });
 
-    console.log(`🔹 Payroll generation request by ${req.user.email} for company ${req.user.company}, month: ${month}, year: ${year}`);
-
     const results = [];
 
     for (const email of emails) {
-      const employee = await User.findOne({ email });
-      if (!employee) {
-        console.warn(`⚠️ Employee not found: ${email}`);
-        continue;
-      }
+      const employee = await User.findOne({ email }).populate("companyId");
+      if (!employee || !employee.companyId) continue;
 
-      if (employee.company !== req.user.company) {
-        console.warn(`⚠️ Skipped payroll for ${email} - belongs to another company: ${employee.company}`);
-        continue;
-      }
+      // Multi-tenant isolation
+      if (!req.user.isSuperStakeholder && employee.companyId._id.toString() !== req.user.companyId?.toString()) continue;
 
       const existing = await Payroll.findOne({ employeeId: employee._id, month, year });
-      if (existing) {
-        console.log(`⚠️ Payroll already exists for ${email}, month: ${month}, year: ${year}`);
-        continue;
+      if (existing) continue;
+
+      const grossSalary = Number(basicSalary) + Number(housingAllowance) + Number(medicalAllowance)
+        + Number(transportationAllowance) + Number(leaveAllowance);
+
+      let settings = await TaxSettings.findOne({ companyId: employee.companyId._id });
+      if (!settings) {
+        settings = await TaxSettings.create({
+          companyId: employee.companyId._id,
+          mode: "STANDARD_PAYE",
+          customPercent: 0,
+          nhfRate: 0.025,
+          nhisEmployee: 0.05,
+          nhisEmployer: 0.10 // ✅ Correct 10% default
+        });
       }
 
-      const grossSalary =
-        Number(basicSalary) +
-        Number(housingAllowance) +
-        Number(medicalAllowance) +
-        Number(transportationAllowance) +
-        Number(leaveAllowance);
+      // Ensure rates exist
+      settings.nhfRate = settings.nhfRate ?? 0.025;
+      settings.nhisEmployee = settings.nhisEmployee ?? 0.05;
+      settings.nhisEmployer = settings.nhisEmployer ?? 0.10;
 
-      const totalDeductions = Number(taxDeduction) + Number(pensionDeduction) + Number(otherDeductions);
-      const netPay = grossSalary - totalDeductions;
+      const nhfDeduction = Number((grossSalary * settings.nhfRate).toFixed(2));
+      const nhisEmployeeDeduction = Number((grossSalary * settings.nhisEmployee).toFixed(2));
+      const nhisEmployerContribution = Number((grossSalary * settings.nhisEmployer).toFixed(2));
+      const paye = Number((await taxUtil.computePAYE(grossSalary, nhfDeduction, nhisEmployeeDeduction, employee.companyId._id)).toFixed(2));
+
+      const totalDeductions = nhfDeduction + nhisEmployeeDeduction + paye + Number(pensionDeduction) + Number(otherDeductions);
+      const netPay = Number((grossSalary - totalDeductions).toFixed(2));
 
       const payroll = new Payroll({
         employeeId: employee._id,
-        month,
-        year,
-        basicSalary,
-        housingAllowance,
-        medicalAllowance,
-        transportationAllowance,
-        leaveAllowance,
-        taxDeduction,
-        pensionDeduction,
-        otherDeductions,
+        companyId: employee.companyId._id,
+        month, year,
+        basicSalary: Number(basicSalary),
+        housingAllowance: Number(housingAllowance),
+        medicalAllowance: Number(medicalAllowance),
+        transportationAllowance: Number(transportationAllowance),
+        leaveAllowance: Number(leaveAllowance),
+        taxDeduction: paye,
+        pensionDeduction: Number(pensionDeduction),
+        nhfDeduction,
+        nhisEmployeeDeduction,
+        nhisEmployerContribution,
+        otherDeductions: Number(otherDeductions),
         grossSalary,
-        netPay,
+        netPay
       });
 
       await payroll.save();
 
-      console.log(`✅ Payroll generated for ${email}, netPay: ₦${netPay}`);
+      await TaxHistory.findOneAndUpdate(
+        { employeeId: employee._id, month, year },
+        { payrollId: payroll._id, employeeId: employee._id, month, year, grossSalary, paye, nhfDeduction, nhisEmployeeDeduction, nhisEmployerContribution, pensionDeduction: Number(pensionDeduction), otherDeductions: Number(otherDeductions), netPay },
+        { upsert: true }
+      );
 
-      sendEmail({
-        to: email,
-        subject: `Payslip for ${month}/${year}`,
-        body: `Your net pay is ₦${netPay}`,
+      const period = `${year}-${month.toString().padStart(2, "0")}`;
+
+      // Record PAYE
+      await CompanyTaxLedger.create({
+        companyId: employee.companyId._id,
+        taxType: "PAYE",
+        period,
+        basisAmount: grossSalary,
+        rate: grossSalary > 0 ? paye / grossSalary : 0,
+        taxAmount: paye,
+        source: "Payroll",
+        sourceRefs: [payroll._id],
+        computedBy: req.user._id
+      });
+
+      // Record NHF
+      await CompanyTaxLedger.create({
+        companyId: employee.companyId._id,
+        taxType: "NHF",
+        period,
+        basisAmount: grossSalary,
+        rate: settings.nhfRate,
+        taxAmount: nhfDeduction,
+        source: "Payroll",
+        sourceRefs: [payroll._id],
+        computedBy: req.user._id
+      });
+
+      // Record NHIS
+      await CompanyTaxLedger.create({
+        companyId: employee.companyId._id,
+        taxType: "NHIS",
+        period,
+        basisAmount: grossSalary,
+        rate: settings.nhisEmployee,
+        taxAmount: nhisEmployeeDeduction,
+        source: "Payroll",
+        sourceRefs: [payroll._id],
+        computedBy: req.user._id
       });
 
       results.push(payroll);
     }
 
-    res.status(201).json({ message: "Payroll processed", count: results.length, results });
+    res.status(201).json({ message: "Payroll processed successfully", count: results.length, results });
   } catch (err) {
-    console.error("❌ Single payroll generation error:", err.message, err.stack);
+    console.error("Payroll error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+/** 🔹 BULK PAYROLL GENERATION */
+router.post("/send-bulk", auth, isAdmin, async (req, res) => {
+  try {
+    const { month, year } = req.body;
+    if (!month || !year) return res.status(400).json({ message: "Month and year are required" });
+
+    const staff = await User.find({ companyId: req.user.companyId, isStaff: true }).populate("companyId");
+    if (!staff.length) return res.status(404).json({ message: "No staff found" });
+
+    let createdCount = 0;
+
+    for (const employee of staff) {
+      if (!employee.companyId) continue;
+      const existing = await Payroll.findOne({ employeeId: employee._id, month, year });
+      if (existing) continue;
+
+      const grossSalary = Number(employee.basicSalary || 0) + Number(employee.housingAllowance || 0)
+        + Number(employee.medicalAllowance || 0) + Number(employee.transportationAllowance || 0)
+        + Number(employee.leaveAllowance || 0);
+
+      let settings = await TaxSettings.findOne({ companyId: employee.companyId._id });
+      if (!settings) {
+        settings = await TaxSettings.create({
+          companyId: employee.companyId._id,
+          mode: "STANDARD_PAYE",
+          customPercent: 0,
+          nhfRate: 0.025,
+          nhisEmployee: 0.05,
+          nhisEmployer: 0.10
+        });
+      }
+
+      settings.nhfRate = settings.nhfRate ?? 0.025;
+      settings.nhisEmployee = settings.nhisEmployee ?? 0.05;
+      settings.nhisEmployer = settings.nhisEmployer ?? 0.10;
+
+      const nhfDeduction = Number((grossSalary * settings.nhfRate).toFixed(2));
+      const nhisEmployeeDeduction = Number((grossSalary * settings.nhisEmployee).toFixed(2));
+      const nhisEmployerContribution = Number((grossSalary * settings.nhisEmployer).toFixed(2));
+      const paye = Number((await taxUtil.computePAYE(grossSalary, nhfDeduction, nhisEmployeeDeduction, employee.companyId._id)).toFixed(2));
+
+      const totalDeductions = nhfDeduction + nhisEmployeeDeduction + paye;
+      const netPay = Number((grossSalary - totalDeductions).toFixed(2));
+
+      const payroll = new Payroll({
+        employeeId: employee._id,
+        companyId: employee.companyId._id,
+        month,
+        year,
+        basicSalary: Number(employee.basicSalary || 0),
+        housingAllowance: Number(employee.housingAllowance || 0),
+        medicalAllowance: Number(employee.medicalAllowance || 0),
+        transportationAllowance: Number(employee.transportationAllowance || 0),
+        leaveAllowance: Number(employee.leaveAllowance || 0),
+        taxDeduction: paye,
+        nhfDeduction,
+        nhisEmployeeDeduction,
+        nhisEmployerContribution,
+        grossSalary,
+        netPay
+      });
+
+      await payroll.save();
+
+      await TaxHistory.findOneAndUpdate(
+        { employeeId: employee._id, month, year },
+        {
+          payrollId: payroll._id,
+          employeeId: employee._id,
+          month,
+          year,
+          grossSalary,
+          taxDeduction: paye,
+          nhfDeduction,
+          nhisEmployeeDeduction,
+          nhisEmployerContribution,
+          pensionDeduction: Number(employee.pensionDeduction || 0),
+          otherDeductions: 0,
+          netPay,
+          companyTaxes: { cit: 0, vat: 0, wht: 0, tet: 0 }
+        },
+        { upsert: true }
+      );
+
+      const period = `${year}-${month.toString().padStart(2, "0")}`;
+
+      // PAYE
+      await CompanyTaxLedger.create({
+        companyId: employee.companyId._id,
+        taxType: "PAYE",
+        period,
+        basisAmount: grossSalary,
+        rate: paye / grossSalary,
+        taxAmount: paye,
+        source: "Payroll",
+        sourceRefs: [payroll._id],
+        computedBy: req.user._id
+      });
+
+      // NHF
+      await CompanyTaxLedger.create({
+        companyId: employee.companyId._id,
+        taxType: "PAYE",
+        period,
+        basisAmount: grossSalary,
+        rate: settings.nhfRate,
+        taxAmount: nhfDeduction,
+        source: "Payroll",
+        sourceRefs: [payroll._id],
+        computedBy: req.user._id
+      });
+
+      // NHIS
+      await CompanyTaxLedger.create({
+        companyId: employee.companyId._id,
+        taxType: "PAYE",
+        period,
+        basisAmount: grossSalary,
+        rate: settings.nhisEmployee,
+        taxAmount: nhisEmployeeDeduction,
+        source: "Payroll",
+        sourceRefs: [payroll._id],
+        computedBy: req.user._id
+      });
+
+      createdCount++;
+    }
+
+    res.json({ message: "Bulk payroll processed", count: createdCount });
+  } catch (err) {
+    console.error("Bulk payroll error:", err.message, err.stack);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
 
 
-/** GET my own payslips (FOR STAFF) */
-router.get("/my-payslips", auth, async (req, res) => {
-  try {
-    // Staff ONLY sees their own payslips
-    const payrolls = await Payroll.find({
-      employeeId: req.user._id,
-    }).sort({ year: -1, month: -1 });
 
-    console.log(`📄 Staff ${req.user.email} fetched ${payrolls.length} payslips`);
-    return res.status(200).json(payrolls);
 
-  } catch (err) {
-    console.error("❌ Error fetching staff payslips:", err.message);
-    return res.status(500).json({
-      message: "Server error",
-      error: err.message,
-    });
-  }
-});
-
-/** GET all payrolls */
 /** GET all payrolls */
 router.get("/all", auth, async (req, res) => {
   try {
-    console.log(`🔹 Fetching all payrolls for ${req.user.email}`);
-
     let payrolls;
-
-    // 🔥 Both Admin & SuperStakeholder should ONLY see company payrolls
     if (req.user.isAdmin || req.user.isSuperStakeholder) {
-      payrolls = await Payroll.find()
-        .populate("employeeId", "name email company isStaff");
-
-      payrolls = payrolls.filter(
-        (p) =>
-          p.employeeId?.company === req.user.company &&
-          p.employeeId?.isStaff
-      );
+      payrolls = await Payroll.find().populate("employeeId", "name email companyId isStaff");
+      payrolls = payrolls.filter(p => p.employeeId?.companyId._id.toString() === req.user.companyId?.toString() && p.employeeId?.isStaff);
     } else {
-      // Staff sees only their own payroll
-      payrolls = await Payroll.find({
-        employeeId: req.user._id,
-      }).populate("employeeId", "name email company");
+      payrolls = await Payroll.find({ employeeId: req.user._id }).populate("employeeId", "name email companyId");
     }
-
-    console.log(`✅ Retrieved ${payrolls.length} payroll(s)`);
     res.status(200).json(payrolls);
-
   } catch (err) {
-    console.error("❌ Error fetching all payrolls:", err.message, err.stack);
+    console.error("Error fetching payrolls:", err.message, err.stack);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-
-/** GET staff payrolls by employee ID */
+/** GET payrolls for a single staff */
 router.get("/staff/:id", auth, async (req, res) => {
   try {
-    const employee = await User.findById(req.params.id);
-    if (!employee) {
-      console.warn(`⚠️ Employee not found with ID: ${req.params.id}`);
-      return res.status(404).json({ message: "Employee not found" });
-    }
-
-    if (!req.user.isSuperStakeholder && employee.company !== req.user.company) {
-      console.warn(`⚠️ Access denied for ${req.user.email} to view ${employee.email}`);
+    const employee = await User.findById(req.params.id).populate("companyId");
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+    if (!req.user.isSuperStakeholder && employee.companyId._id.toString() !== req.user.companyId?.toString())
       return res.status(403).json({ message: "Access denied" });
-    }
 
     const payrolls = await Payroll.find({ employeeId: req.params.id }).sort({ year: -1, month: -1 });
-
-    console.log(`✅ Retrieved ${payrolls.length} payroll(s) for ${employee.email}`);
     res.status(200).json(payrolls);
   } catch (err) {
-    console.error("❌ Error fetching staff payrolls:", err.message, err.stack);
+    console.error("Error fetching staff payrolls:", err.message, err.stack);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-/** GET staff by company */
-router.get("/by-company/:company", auth, isAdmin, async (req, res) => {
-  console.log("============================================");
-  console.log("📌 [GET /payrolls/by-company/:company] HIT");
-  console.log("📥 Full URL:", req.originalUrl);
-  console.log("👥 Requested By:", req.user?.email || "Unknown User");
-  console.log("🧩 Requested Company:", req.params.company);
-  console.log("--------------------------------------------");
-
+/** GET all staff under a selected company */
+router.get("/by-company/:companyId", auth, async (req, res) => {
   try {
-    const selectedCompany = req.params.company?.trim();
-    const userCompany = req.user?.company?.trim();
-
-    if (!selectedCompany) {
-      console.log("❌ ERROR: Missing company param");
-      console.log("============================================");
-      return res.status(400).json({ message: "Company is required" });
-    }
-
-    if (!userCompany && !req.user.isSuperStakeholder) {
-      console.log(`❌ ERROR: Admin ${req.user?.email || "Unknown"} has no company assigned`);
-      console.log("============================================");
-      return res.status(403).json({ message: "Access denied: No company assigned" });
-    }
-
-    const selectedLower = selectedCompany.toLowerCase();
-    const userLower = userCompany?.toLowerCase();
-
-    if (!req.user.isSuperStakeholder && selectedLower !== userLower) {
-      console.log(`❌ ACCESS DENIED: ${req.user.email} tried to view ${selectedCompany} staff`);
-      console.log("============================================");
-      return res.status(403).json({ message: "Access denied: You cannot view other company's staff" });
-    }
-
-    const companyToSearch = req.user.isSuperStakeholder ? selectedCompany : userCompany;
-
-    console.log(`🔍 Searching staff for company: ${companyToSearch}`);
-
-    // ✅ Only staff users
-    const staff = await User.find({ 
-      company: companyToSearch,
-      isStaff: true
-    }).select("_id name email");
-
-    console.log(`✅ Staff Found: ${staff.length}`);
-    console.log("============================================");
-
-    return res.status(200).json(staff);
+    const companyToSearch = req.user.isSuperStakeholder ? req.params.companyId : req.user.companyId;
+    const staff = await User.find({ companyId: companyToSearch, isStaff: true }).select("_id name email companyId");
+    res.status(200).json(staff);
   } catch (err) {
-    console.log("❌ SERVER ERROR in /by-company route");
-    console.log("🛑 Error:", err.message);
-    console.log("============================================");
-    return res.status(500).json({
-      message: "Server error while fetching staff",
-      error: err.message,
-    });
+    console.error("Error fetching staff by company:", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
+
+
+// GET my payrolls (for staff)
+router.get("/my-payslips", auth, async (req, res) => {
+  try {
+    const payrolls = await Payroll.find({ employeeId: req.user._id }).sort({ year: -1, month: -1 });
+    res.status(200).json(payrolls);
+  } catch (err) {
+    console.error("Error fetching my payslips:", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
+
+/** 🔹 GET audit-ready monthly payroll summary */
+router.get("/summary/monthly", auth, isAdmin, async (req, res) => {
+  try {
+    const summary = await Payroll.aggregate([
+      { $match: { companyId: req.user.companyId } },
+      {
+        $group: {
+          _id: { month: "$month", year: "$year" },
+          staffCount: { $sum: 1 },
+          totalGross: { $sum: "$grossSalary" },
+          totalPAYE: { $sum: "$taxDeduction" },
+          totalNHF: { $sum: "$nhfDeduction" },
+          totalNHISEmployee: { $sum: "$nhisEmployeeDeduction" },
+          totalNHISEmployer: { $sum: "$nhisEmployerContribution" },
+          totalNetPay: { $sum: "$netPay" },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+    ]);
+
+    res.status(200).json(summary);
+  } catch (err) {
+    console.error("Error fetching monthly summary:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
+router.get("/remittance/:year/:month", auth, isAdmin, async (req, res) => {
+  const { year, month } = req.params;
+  try {
+    const payrolls = await Payroll.find({ companyId: req.user.companyId, year: Number(year), month: Number(month) });
+    if (!payrolls.length) return res.status(404).json({ message: "No payroll data found" });
+
+    const grossSalary = payrolls.reduce((acc, p) => acc + p.grossSalary, 0);
+    const taxDeduction = payrolls.reduce((acc, p) => acc + p.taxDeduction, 0);
+    const nhfDeduction = payrolls.reduce((acc, p) => acc + p.nhfDeduction, 0);
+    const nhisEmployeeDeduction = payrolls.reduce((acc, p) => acc + p.nhisEmployeeDeduction, 0);
+    const nhisEmployerContribution = payrolls.reduce((acc, p) => acc + p.nhisEmployerContribution, 0);
+    const pensionDeduction = payrolls.reduce((acc, p) => acc + p.pensionDeduction, 0);
+    const otherDeductions = payrolls.reduce((acc, p) => acc + p.otherDeductions, 0);
+    const netPay = payrolls.reduce((acc, p) => acc + p.netPay, 0);
+
+    res.json({
+      companyId: req.user.companyId,
+      period: `${year}-${month.toString().padStart(2, "0")}`,
+      grossSalary,
+      taxDeduction,
+      nhfDeduction,
+      nhisEmployeeDeduction,
+      nhisEmployerContribution,
+      pensionDeduction,
+      otherDeductions,
+      netPay,
+      entryCount: payrolls.length,
+      remitted: false // or fetch from your remittance record
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
+
 /** Email Notification (placeholder) */
-function sendEmail({ to, subject, body, attachmentUrl }) {
-  console.log("📧 Sending email to:", to);
-  console.log("Subject:", subject);
-  console.log("Body:", body);
-  if (attachmentUrl) console.log("Attachment:", attachmentUrl);
+function sendEmail({ to, subject, body }) {
+  console.log(`📧 Sending email to: ${to}`);
+  console.log(`Subject: ${subject}`);
+  console.log(`Body: ${body}`);
 }
 
 module.exports = router;

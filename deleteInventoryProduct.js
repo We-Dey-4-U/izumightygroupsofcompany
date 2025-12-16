@@ -1,6 +1,6 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
-const InventoryProduct = require("./models/InventoryProduct"); // adjust path if needed
+const InventoryProduct = require("./models/InventoryProduct"); // adjust path if neede
 
 const run = async () => {
   try {

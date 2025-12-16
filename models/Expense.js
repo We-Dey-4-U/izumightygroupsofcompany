@@ -2,14 +2,27 @@ const mongoose = require("mongoose");
 
 const expenseSchema = new mongoose.Schema(
   {
-    dateOfExpense: { type: Date, required: true },
-
-    expenseCategory: {
-      type: String,
+    companyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
       required: true,
+      index: true,
     },
 
-    // 🔹 Reference the user who entered the expense
+    dateOfExpense: { type: Date, required: true },
+    expenseCategory: { type: String, required: true },
+
+    taxFlags: {
+      vatClaimable: { type: Boolean, default: false },
+      whtApplicable: { type: Boolean, default: false },
+      citAllowable: { type: Boolean, default: true },
+    },
+
+    vendorIsNigerian: { type: Boolean, default: true },
+    vatAmount: { type: Number, default: 0 },
+    whtRate: { type: Number, default: 0 },
+    whtAmount: { type: Number, default: 0 },
+
     enteredByUser: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -17,39 +30,20 @@ const expenseSchema = new mongoose.Schema(
     },
 
     description: { type: String, required: true },
-
     paidTo: { type: String, required: true },
-
     amount: { type: Number, required: true },
 
-    type: {
-      type: String,
-      default: "Expense",
-    },
-
+    type: { type: String, default: "Expense" },
     balanceAfterTransaction: { type: Number, default: 0 },
-
-    paymentMethod: {
-      type: String,
-      required: true,
-    },
-
-    department: {
-      type: String,
-      required: true,
-    },
+    paymentMethod: { type: String, required: true },
+    department: { type: String, required: true },
 
     approvedBy: { type: String, default: "" },
-
-    status: {
-      type: String,
-      default: "Pending",
-    },
+    status: { type: String, default: "Pending" },
 
     receiptUploads: [{ id: String, url: String }],
   },
   { timestamps: true }
 );
 
-const Expense = mongoose.model("Expense", expenseSchema);
-exports.Expense = Expense;
+module.exports = mongoose.model("Expense", expenseSchema);

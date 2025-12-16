@@ -6,7 +6,7 @@ const { auth, isAdmin, isStaff, isSuperStakeholder,isSubAdmin } = require("../mi
 
 // ✅ Import models properl
 const { Report } = require("../models/Report");
-const { Expense } = require("../models/Expense");
+const  Expense  = require("../models/Expense");
 const Attendance = require("../models/Attendance");
 const { User } = require("../models/user");
 const { Product } = require("../models/product");
@@ -26,91 +26,52 @@ const Order = require("../models/order");
 // -----------------------------
 // WEEKLY REPORT SUBMISSION RATE
 // WEEKLY REPORT SUBMISSION RATE (Company Isolated)
+// -----------------------------
+// 1️⃣ REPORTS SUMMARY (Weekly)
+// -----------------------------
 router.get("/reports-summary", auth, async (req, res) => {
-  // Allow ONLY admin, subadmin, or super stakeholder
-  if (
-    !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
-    !req.user.isSuperStakeholder
-  ) {
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
   }
-
-  console.log("📌 [GET /analytics/reports-summary] Requested by:", req.user?.email);
 
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
     const endOfWeek = moment().endOf("isoWeek").toDate();
 
-    // ✅ Get total staff in THIS ADMIN COMPANY only
-    const totalStaff = await User.countDocuments({
-      isStaff: true,
-      company: req.user.company, // 🔥 Company Isolation
-    });
+    // Get all users in the same company
+    const usersInCompany = await User.find({ company: req.user.company }).select("_id");
+    const companyUserIds = usersInCompany.map(u => u._id);
 
-    // ✅ Get reports submitted ONLY by users in this same company
+    const totalStaff = await User.countDocuments({ _id: { $in: companyUserIds }, isStaff: true });
+
     const submittedReports = await Report.find({
       weekEnding: { $gte: startOfWeek, $lte: endOfWeek },
-    }).populate("submittedBy", "company");
+      submittedBy: { $in: companyUserIds }
+    });
 
-    // 🔥 Filter reports to same company
-    const companyReports = submittedReports.filter(
-      (r) => r.submittedBy?.company === req.user.company
-    );
-
-    const submittedCount = companyReports.length;
+    const submittedCount = submittedReports.length;
     const pendingCount = totalStaff - submittedCount;
+    const submissionRate = totalStaff > 0 ? ((submittedCount / totalStaff) * 100).toFixed(2) : 0;
 
-    const submissionRate =
-      totalStaff > 0
-        ? ((submittedCount / totalStaff) * 100).toFixed(2)
-        : 0;
-
-    // =====================================
-    // 🔥 TOP DEPARTMENT (Company Isolated)
-    // =====================================
+    // Top department
     const topDept = await Report.aggregate([
-      {
-        $match: {
-          weekEnding: { $gte: startOfWeek, $lte: endOfWeek },
-        },
-      },
-      // join user
-      {
-        $lookup: {
-          from: "users",
-          localField: "submittedBy",
-          foreignField: "_id",
-          as: "user",
-        },
-      },
-      { $unwind: "$user" },
-      // filter by company
-      {
-        $match: {
-          "user.company": req.user.company, // 🔥 Company Filter
-        },
-      },
-      {
-        $group: {
-          _id: "$department",
-          avgPerformance: {
-            $avg: {
-              $switch: {
-                branches: [
-                  { case: { $eq: ["$performanceRating", "Excellent"] }, then: 4 },
-                  { case: { $eq: ["$performanceRating", "Good"] }, then: 3 },
-                  { case: { $eq: ["$performanceRating", "Fair"] }, then: 2 },
-                  { case: { $eq: ["$performanceRating", "Poor"] }, then: 1 },
-                ],
-                default: 0,
-              },
-            },
-          },
-        },
-      },
+      { $match: { weekEnding: { $gte: startOfWeek, $lte: endOfWeek }, submittedBy: { $in: companyUserIds } } },
+      { $group: { _id: "$department", avgPerformance: { 
+          $avg: { 
+            $switch: { 
+              branches: [
+                { case: { $eq: ["$performanceRating", "Excellent"] }, then: 4 },
+                { case: { $eq: ["$performanceRating", "Good"] }, then: 3 },
+                { case: { $eq: ["$performanceRating", "Fair"] }, then: 2 },
+                { case: { $eq: ["$performanceRating", "Poor"] }, then: 1 }
+              ],
+              default: 0
+            }
+          }
+        } 
+      }},
       { $sort: { avgPerformance: -1 } },
-      { $limit: 1 },
+      { $limit: 1 }
     ]);
 
     res.status(200).json({
@@ -120,70 +81,50 @@ router.get("/reports-summary", auth, async (req, res) => {
       submissionRate: Number(submissionRate),
       topDepartment: topDept[0]?._id || "N/A",
     });
-  } catch (error) {
-    console.error("❌ Reports Summary Error:", error.message);
-    res.status(500).json({ message: error.message });
+
+  } catch (err) {
+    console.error("❌ Reports Summary Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
 
 // -----------------------------
 // EMPLOYEE SUMMARY
 // -----------------------------
+
+// -----------------------------
+// 2️⃣ EMPLOYEE SUMMARY
+// -----------------------------
 router.get("/employee-summary", auth, async (req, res) => {
-  // Allow ONLY admin, subadmin, or super stakeholder
   if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
   }
 
-  console.log("📌 [GET /analytics/employee-summary] Requested by:", req.user?.email);
-
   try {
-    const company = req.user.company;
+    const usersInCompany = await User.find({ company: req.user.company }).select("_id");
+    const companyUserIds = usersInCompany.map(u => u._id);
 
-    // ✅ Fetch only employees whose user belongs to the admin's company
-    const filteredEmployees = await EmployeeInfo.find()
-      .populate({
-        path: "user",
-        select: "company",
-        match: { company }, // 🔥 Company isolation applied here
-      });
+    const filteredEmployees = await EmployeeInfo.find({ user: { $in: companyUserIds } })
+      .populate("user", "company");
 
-    // Remove EmployeeInfo records where populate failed (user not in this company)
-    const employees = filteredEmployees.filter(emp => emp.user);
-
-    // Total company employees
-    const totalEmployees = employees.length;
-
-    // Active employees
-    const activeEmployees = employees.filter(
-      emp => emp.employment?.status === "Active"
-    ).length;
-
-    // Inactive employees
+    const totalEmployees = filteredEmployees.length;
+    const activeEmployees = filteredEmployees.filter(e => e.employment?.status === "Active").length;
     const inactiveEmployees = totalEmployees - activeEmployees;
 
-    // Department breakdown
     const departmentMap = {};
-    employees.forEach(emp => {
+    filteredEmployees.forEach(emp => {
       const dept = emp.employment?.department || "Unassigned";
       departmentMap[dept] = (departmentMap[dept] || 0) + 1;
     });
 
-    const byDepartment = Object.keys(departmentMap).map(dept => ({
-      department: dept,
-      count: departmentMap[dept],
-    })).sort((a, b) => b.count - a.count);
+    const byDepartment = Object.keys(departmentMap).map(d => ({ department: d, count: departmentMap[d] }))
+      .sort((a, b) => b.count - a.count);
 
-    res.status(200).json({
-      totalEmployees,
-      activeEmployees,
-      inactiveEmployees,
-      byDepartment,
-    });
+    res.status(200).json({ totalEmployees, activeEmployees, inactiveEmployees, byDepartment });
 
-  } catch (error) {
-    console.error("❌ Employee Summary Error:", error.message);
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    console.error("❌ Employee Summary Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -191,39 +132,29 @@ router.get("/employee-summary", auth, async (req, res) => {
 // -----------------------------
 // PAYROLL SUMMARY
 // -----------------------------
+// -----------------------------
+// 3️⃣ PAYROLL SUMMARY (Monthly)
+// -----------------------------
 router.get("/payroll-summary", auth, async (req, res) => {
-  if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
-    return res.status(403).json({ message: "Access denied" });
-  }
-
-  const startOfMonth = moment().startOf("month").toDate();
-  const endOfMonth = moment().endOf("month").toDate();
-  const company = req.user.company;
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder) return res.status(403).json({ message: "Access denied" });
 
   try {
+    const startOfMonth = moment().startOf("month").toDate();
+    const endOfMonth = moment().endOf("month").toDate();
+
+    const usersInCompany = await User.find({ company: req.user.company }).select("_id");
+    const companyUserIds = usersInCompany.map(u => u._id);
+
     const payrolls = await Payroll.aggregate([
-      { $match: { createdAt: { $gte: startOfMonth, $lte: endOfMonth } } },
-      {
-        $lookup: {
-          from: "users",
-          localField: "employeeId",
-          foreignField: "_id",
-          as: "employee",
-        },
-      },
-      { $unwind: "$employee" },
-      { $match: { "employee.company": company } },
-      {
-        $group: {
+      { $match: { employeeId: { $in: companyUserIds }, createdAt: { $gte: startOfMonth, $lte: endOfMonth } } },
+      { $group: {
           _id: null,
           totalGross: { $sum: "$grossSalary" },
           totalNet: { $sum: "$netPay" },
-          totalTaxDeducted: {
-            $sum: { $add: ["$taxDeduction", "$pensionDeduction", "$otherDeductions"] },
-          },
-          employeeCount: { $addToSet: "$employeeId" },
-        },
-      },
+          totalTaxDeducted: { $sum: { $add: ["$taxDeduction", "$pensionDeduction", "$otherDeductions"] } },
+          employeeCount: { $addToSet: "$employeeId" }
+        }
+      }
     ]);
 
     const data = payrolls[0] || { totalGross: 0, totalNet: 0, totalTaxDeducted: 0, employeeCount: [] };
@@ -231,72 +162,50 @@ router.get("/payroll-summary", auth, async (req, res) => {
     res.status(200).json({
       totalGross: data.totalGross,
       totalNet: data.totalNet,
-      totalTaxDeducted: data.totalTaxDeducted, // ✅ New field
+      totalTaxDeducted: data.totalTaxDeducted,
       totalEmployeesPaid: data.employeeCount.length,
     });
-  } catch (error) {
-    console.error("❌ Payroll Summary Error:", error.message);
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    console.error("❌ Payroll Summary Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
 
 // -----------------------------
-// 2️⃣ ALL-TIME OVERVIEW (Totals)
-// ----------------------------
-
-
+// 4️⃣ ALL-TIME SUMMARY (Users, Products, Sales)
+// -----------------------------
 router.get("/alltime-summary", auth, async (req, res) => {
-  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
-    return res.status(403).json({ message: "Access denied" });
-  }
-
-  console.log("📌 [GET /analytics/alltime-summary] Requested by:", req.user?.email);
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) return res.status(403).json({ message: "Access denied" });
 
   try {
     const company = req.user.company;
-    const prevDate = moment().startOf("month").toDate(); // Previous month cutoff
+    const prevDate = moment().startOf("month").toDate();
 
-    // ---- USERS ----
-    const [totalUsers, prevUsers, usersInCompany] = await Promise.all([
-      User.countDocuments({ company }),
-      User.countDocuments({ company, createdAt: { $lt: prevDate } }),
-      User.find({ company }).select("_id"),
-    ]);
+    const usersInCompany = await User.find({ company }).select("_id");
     const userIds = usersInCompany.map(u => u._id);
 
-    // ---- PRODUCTS ----
-    const [totalProducts, prevProducts] = await Promise.all([
+    const [totalUsers, prevUsers, totalProducts, prevProducts] = await Promise.all([
+      User.countDocuments({ _id: { $in: userIds } }),
+      User.countDocuments({ _id: { $in: userIds }, createdAt: { $lt: prevDate } }),
       InventoryProduct.countDocuments({ createdBy: { $in: userIds } }),
-      InventoryProduct.countDocuments({ createdBy: { $in: userIds }, createdAt: { $lt: prevDate } }),
+      InventoryProduct.countDocuments({ createdBy: { $in: userIds }, createdAt: { $lt: prevDate } })
     ]);
 
-    // ---- SALES / EARNINGS ----
-    const salesAgg = await Sale.aggregate([
-      { $match: { company } },
-      { $group: { _id: null, totalEarnings: { $sum: "$totalAmount" } } },
-    ]);
+    const salesAgg = await Sale.aggregate([{ $match: { company } }, { $group: { _id: null, totalEarnings: { $sum: "$totalAmount" } } }]);
+    const prevSalesAgg = await Sale.aggregate([{ $match: { company, createdAt: { $lt: prevDate } } }, { $group: { _id: null, prevEarnings: { $sum: "$totalAmount" } } }]);
 
-    const prevSalesAgg = await Sale.aggregate([
-      { $match: { company, createdAt: { $lt: prevDate } } },
-      { $group: { _id: null, prevEarnings: { $sum: "$totalAmount" } } },
-    ]);
-
-    const data = salesAgg[0] || {};
-    const prevData = prevSalesAgg[0] || {};
-
-    const response = {
+    res.status(200).json({
       users: totalUsers || 0,
       products: totalProducts || 0,
-      earnings: data.totalEarnings || 0,
+      earnings: salesAgg[0]?.totalEarnings || 0,
       prevUsers: prevUsers || 0,
       prevProducts: prevProducts || 0,
-      prevEarnings: prevData.prevEarnings || 0,
-    };
+      prevEarnings: prevSalesAgg[0]?.prevEarnings || 0,
+    });
 
-    res.status(200).json(response);
-  } catch (error) {
-    console.error("❌ All-time summary error:", error.message);
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    console.error("❌ All-time Summary Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -339,13 +248,11 @@ router.get("/attendance-summary", auth, async (req, res) => {
 // -----------------------------
 // 4️⃣ EXPENSES SUMMARY
 // -----------------------------
+// -----------------------------
+// 5️⃣ EXPENSE SUMMARY (Weekly / Monthly)
+// -----------------------------
 router.get("/expenses-summary", auth, async (req, res) => {
-  // Allow ONLY admin or super stakeholder
-  if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
-    return res.status(403).json({ message: "Access denied" });
-  }
-
-  console.log("📌 [GET /analytics/expenses-summary] Requested by:", req.user?.email);
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder) return res.status(403).json({ message: "Access denied" });
 
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
@@ -353,85 +260,15 @@ router.get("/expenses-summary", auth, async (req, res) => {
     const startOfMonth = moment().startOf("month").toDate();
     const endOfMonth = moment().endOf("month").toDate();
 
-    // 🔥 1. Get all user IDs in same company
     const usersInCompany = await User.find({ company: req.user.company }).select("_id");
+    const companyUserIds = usersInCompany.map(u => u._id);
 
-    // 🔥 2. Extract IDs
-    const companyUserIds = usersInCompany.map((u) => u._id);
-
-    // 🔥 3. Use company-based filtering inside every aggregation
-    const [
-      weeklyExpense,
-      weeklyIncome,
-      monthlyExpense,
-      monthlyIncome,
-      topCategories,
-    ] = await Promise.all([
-      // WEEKLY EXPENSE TOTAL
-      Expense.aggregate([
-        {
-          $match: {
-            dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
-            type: "Expense",
-            enteredByUser: { $in: companyUserIds }, // 👈 Company Isolation
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
-
-      // WEEKLY INCOME TOTAL
-      Expense.aggregate([
-        {
-          $match: {
-            dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
-            type: "Income",
-            enteredByUser: { $in: companyUserIds },
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
-
-      // MONTHLY EXPENSE TOTAL
-      Expense.aggregate([
-        {
-          $match: {
-            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-            type: "Expense",
-            enteredByUser: { $in: companyUserIds },
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
-
-      // MONTHLY INCOME TOTAL
-      Expense.aggregate([
-        {
-          $match: {
-            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-            type: "Income",
-            enteredByUser: { $in: companyUserIds },
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
-
-      // TOP CATEGORIES (Company Isolated)
-      Expense.aggregate([
-        {
-          $match: {
-            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-            enteredByUser: { $in: companyUserIds },
-          },
-        },
-        {
-          $group: {
-            _id: "$expenseCategory",
-            total: { $sum: "$amount" },
-          },
-        },
-        { $sort: { total: -1 } },
-        { $limit: 5 },
-      ]),
+    const [weeklyExpense, weeklyIncome, monthlyExpense, monthlyIncome, topCategories] = await Promise.all([
+      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek }, type: "Expense", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
+      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek }, type: "Income", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
+      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth }, type: "Expense", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
+      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth }, type: "Income", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
+      Expense.aggregate([{ $match: { enteredByUser: { $in: companyUserIds }, dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth } } }, { $group: { _id: "$expenseCategory", total: { $sum: "$amount" } } }, { $sort: { total: -1 } }, { $limit: 5 }])
     ]);
 
     res.status(200).json({
@@ -439,30 +276,27 @@ router.get("/expenses-summary", auth, async (req, res) => {
       weeklyIncome: weeklyIncome[0]?.totalAmount || 0,
       monthlyExpenses: monthlyExpense[0]?.totalAmount || 0,
       monthlyIncome: monthlyIncome[0]?.totalAmount || 0,
-      topCategories: topCategories.map((c) => ({
-        category: c._id,
-        total: c.total,
-      })),
+      topCategories: topCategories.map(c => ({ category: c._id, total: c.total })),
     });
-  } catch (error) {
-    console.error("❌ Expenses Summary Error:", error.message);
-    res.status(500).json({ message: error.message });
+
+  } catch (err) {
+    console.error("❌ Expenses Summary Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
+
+
+
 // -----------------------------
 // 5️⃣ STAFF PERFORMANCE TREND
 // -----------------------------
+// -----------------------------
+// 7️⃣ PERFORMANCE TREND (Last 6 Weeks)
+// -----------------------------
 router.get("/performance-trend", auth, async (req, res) => {
-  // Allow ONLY admin, subadmin, or super stakeholder
-  if (
-    !req.user.isAdmin &&
-    !req.user.isSubAdmin &&
-    !req.user.isSuperStakeholder
-  ) {
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
   }
-
-  console.log("📌 [GET /analytics/performance-trend] Requested by:", req.user?.email);
 
   try {
     const last6Weeks = [];
@@ -471,29 +305,24 @@ router.get("/performance-trend", auth, async (req, res) => {
       const start = moment().subtract(i, "weeks").startOf("isoWeek").toDate();
       const end = moment().subtract(i, "weeks").endOf("isoWeek").toDate();
 
-      // 🔥 Company isolation applied here
+      // Get reports for this company only
       const reports = await Report.find({
         weekEnding: { $gte: start, $lte: end },
       }).populate("submittedBy", "company");
 
       const companyReports = reports.filter(
-        (r) => r.submittedBy?.company === req.user.company
+        r => r.submittedBy?.company === req.user.company
       );
 
       const avgScore =
         companyReports.length > 0
           ? companyReports.reduce((sum, r) => {
               switch (r.performanceRating) {
-                case "Excellent":
-                  return sum + 4;
-                case "Good":
-                  return sum + 3;
-                case "Fair":
-                  return sum + 2;
-                case "Poor":
-                  return sum + 1;
-                default:
-                  return sum;
+                case "Excellent": return sum + 4;
+                case "Good": return sum + 3;
+                case "Fair": return sum + 2;
+                case "Poor": return sum + 1;
+                default: return sum;
               }
             }, 0) / companyReports.length
           : 0;
@@ -505,55 +334,39 @@ router.get("/performance-trend", auth, async (req, res) => {
     }
 
     res.status(200).json(last6Weeks);
-  } catch (error) {
-    console.error("❌ Performance Trend Error:", error.message);
-    res.status(500).json({ message: error.message });
+
+  } catch (err) {
+    console.error("❌ Performance Trend Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
 
 // -----------------------------
 // 6️⃣ WEEKLY EARNINGS (Last 7 Days)
 // -----------------------------
-router.get("/week-earnings", auth, async (req, res) => {
-  // Allow ONLY admin, subadmin, or super stakeholder
-  if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
-    return res.status(403).json({ message: "Access denied" });
-  }
 
-  console.log("📌 [GET /analytics/week-earnings] Requested by:", req.user?.email);
+// -----------------------------
+// 6️⃣ SALES WEEKLY EARNINGS
+// -----------------------------
+router.get("/week-earnings", auth, async (req, res) => {
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder) return res.status(403).json({ message: "Access denied" });
 
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
     const endOfWeek = moment().endOf("isoWeek").toDate();
 
     const earnings = await Sale.aggregate([
-      {
-        $match: {
-          company: req.user.company, // 🔹 Company isolation
-          createdAt: { $gte: startOfWeek, $lte: endOfWeek },
-        },
-      },
-      {
-        $group: {
-          _id: { $dayOfWeek: "$createdAt" },
-          total: { $sum: "$totalAmount" }, // 🔹 Use totalAmount from Sale
-        },
-      },
-      { $sort: { _id: 1 } },
+      { $match: { company: req.user.company, createdAt: { $gte: startOfWeek, $lte: endOfWeek } } },
+      { $group: { _id: { $dayOfWeek: "$createdAt" }, total: { $sum: "$totalAmount" } } },
+      { $sort: { _id: 1 } }
     ]);
 
-    res.status(200).json(
-      earnings.map((e) => ({
-        day: e._id,
-        total: e.total,
-      }))
-    );
-  } catch (error) {
-    console.error("❌ Week Earnings Error:", error.message);
-    res.status(500).json({ message: error.message });
+    res.status(200).json(earnings.map(e => ({ day: e._id, total: e.total })));
+  } catch (err) {
+    console.error("❌ Week Earnings Error:", err.message);
+    res.status(500).json({ message: err.message });
   }
 });
-
 // -----------------------------
 // 7️⃣ EXPENSE CATEGORY ANALYTICS (Super Stakeholder)
 // -----------------------------
@@ -596,6 +409,43 @@ router.get("/expenses-category-analytics", auth, async (req, res) => {
     );
   } catch (err) {
     console.error("❌ [CATEGORY ANALYTICS] Error:", err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+// -----------------------------
+// 8️⃣ TOP PERFORMING SALES / PRODUCTS (Company Isolated)
+// -----------------------------
+router.get("/top-sales-products", auth, async (req, res) => {
+  if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  try {
+    const startOfMonth = moment().startOf("month").toDate();
+    const endOfMonth = moment().endOf("month").toDate();
+
+    // 🔹 Top products by quantity sold this month (company isolated)
+    const topProducts = await InventoryProduct.aggregate([
+      { $match: { createdBy: { $exists: true }, company: req.user.company } },
+      { $sort: { itemsSold: -1 } },
+      { $limit: 5 },
+      { $project: { name: 1, productModel: 1, itemsSold: 1 } }
+    ]);
+
+    // 🔹 Top sales by totalAmount this month (company isolated)
+    const topSales = await Sale.aggregate([
+      { $match: { company: req.user.company, createdAt: { $gte: startOfMonth, $lte: endOfMonth } } },
+      { $sort: { totalAmount: -1 } },
+      { $limit: 5 },
+      { $project: { saleId: 1, customerName: 1, totalAmount: 1, createdAt: 1 } }
+    ]);
+
+    res.status(200).json({ topProducts, topSales });
+
+  } catch (err) {
+    console.error("❌ Top Sales/Products Error:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
