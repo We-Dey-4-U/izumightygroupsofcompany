@@ -144,15 +144,24 @@ async function updateCompanyTaxFromExpenses(expense) {
 /**
  * Fetch all CompanyTaxLedger entries for a company
  * Optionally filter by taxType, source, or period
+ * ✅ Updated to support NHIS_EMPLOYER
  */
 async function getCompanyTaxLedger(companyId, filter = {}) {
   try {
     console.log(`🔵 [GET TAX LEDGER] CompanyId: ${companyId}, Filter:`, filter);
+
+    // If no taxType filter is provided, include NHIS_EMPLOYER in default queries
+    if (!filter.taxType) {
+      filter.taxType = { $in: ["PAYE", "NHF", "NHIS", "NHIS_EMPLOYER", "VAT", "WHT", "CIT", "TET"] };
+    }
+
     const entries = await CompanyTaxLedger.find({ companyId, ...filter }).sort({ period: 1 });
     console.log(`📂 Found ${entries.length} ledger entries`);
+
     entries.forEach((e, idx) => {
       console.log(`Entry ${idx + 1}: taxType=${e.taxType}, source=${e.source}, period=${e.period}, basisAmount=${e.basisAmount}, taxAmount=${e.taxAmount}`);
     });
+
     return entries;
   } catch (err) {
     console.error("🔥 [GET TAX LEDGER ERROR]:", err);

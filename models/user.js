@@ -17,19 +17,18 @@ const userSchema = new mongoose.Schema(
       maxlength: 1024 
      },
 
-     company: {
-  type: String,
-  required: function () {
-    return !this.isSuperAdmin; // required only if not superadmin
-  },
-},
-companyId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Company",
-  required: function () {
-    return !this.isSuperAdmin; // required only if not superadmin
-  },
-},
+     // ✅ OPTIONAL — for ecommerce users
+    company: {
+      type: String,
+      default: null,
+    },
+
+    // ✅ OPTIONAL — only set when linked to CRM company
+    companyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      default: null,
+    },
       // 🔥 NEW FIELD — COMPANY ENUM
    // company: {
    //   type: String,

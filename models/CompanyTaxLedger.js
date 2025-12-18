@@ -10,10 +10,10 @@ const companyTaxLedgerSchema = new mongoose.Schema(
     },
 
     taxType: {
-      type: String,
-      enum: ["VAT", "WHT", "CIT", "TET", "PAYE", "NHF", "NHIS"],
-      required: true
-    },
+  type: String,
+  enum: ["VAT", "WHT", "CIT", "TET", "PAYE", "NHF", "NHIS", "NHIS_EMPLOYER"],
+  required: true
+},
 
     period: {
       type: String,

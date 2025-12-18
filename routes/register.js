@@ -18,7 +18,7 @@ router.post("/", async (req, res) => {
       name: Joi.string().min(3).max(30).required(),
       email: Joi.string().min(3).max(200).required().email(),
       password: Joi.string().min(6).max(200).required(),
-      companyCode: Joi.number().required(),
+      companyCode: Joi.number().optional(), // 🔹 Optional now
     });
 
     const { error } = schema.validate(req.body);
@@ -37,26 +37,34 @@ router.post("/", async (req, res) => {
       return res.status(400).send("User already exists.");
     }
 
-    // Lookup company
-    const numericCode = Number(companyCode);
-    console.log("🔹 Company code received:", numericCode);
+    let companyDoc = null;
+    let companyName = null;
+    let companyId = null;
 
-    const companyDoc = await Company.findOne({ code: numericCode });
-    if (!companyDoc) {
-      console.warn("⚠ Company not found for code:", numericCode);
-      return res
-        .status(400)
-        .send("Company not found. Please contact your administrator.");
+    if (companyCode) {
+      // Lookup company only if code is provided
+      const numericCode = Number(companyCode);
+      console.log("🔹 Company code received:", numericCode);
+
+      companyDoc = await Company.findOne({ code: numericCode });
+      if (!companyDoc) {
+        console.warn("⚠ Company not found for code:", numericCode);
+        return res
+          .status(400)
+          .send("Company not found. Please contact your administrator.");
+      }
+      console.log("✅ Company found:", companyDoc.name);
+      companyName = companyDoc.name;
+      companyId = companyDoc._id;
     }
-    console.log("✅ Company found:", companyDoc.name);
 
     // Create user
     const newUser = new User({
       name,
       email,
       password,
-      company: companyDoc.name,
-      companyId: companyDoc._id,
+      company: companyName,  // may be null
+      companyId: companyId,  // may be null
     });
     console.log("🔹 New user instance created");
 

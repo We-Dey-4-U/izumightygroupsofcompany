@@ -2,37 +2,67 @@
 const router = require("express").Router();
 const { auth, isUser, isAdmin } = require("../middleware/auth");
 const Order = require("../models/order");
+const { Product } = require("../models/product"); // ✅ REQUIRED
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const moment = require("moment");
 
-// Ensure uploads/receipts folder existttttttttttttttt
+// ===============================
+// Ensure uploads/receipts folder exists
+// ===============================
 const receiptDir = path.join(__dirname, "..", "uploads", "receipts");
 if (!fs.existsSync(receiptDir)) {
   fs.mkdirSync(receiptDir, { recursive: true });
 }
 
+// ===============================
 // Multer config
+// ===============================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, receiptDir),
   filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
 });
 const upload = multer({ storage });
 
-// CREATE ORDER (manual payment)
-// CREATE ORDER (bank transfer)
+// =======================================================
+// CREATE ORDER (BANK TRANSFER) — COMPANY ISOLATED ✅
+// =======================================================
 router.post("/bank-transfer", auth, upload.single("receipt"), async (req, res) => {
   try {
     const { userId, products, subtotal, total, shipping, paymentMethod } = req.body;
 
-    if (!userId || !products || !subtotal || !total || !shipping) {
-      return res.status(400).json({ message: "Missing required fields" });
+    if (!products) {
+      return res.status(400).json({ message: "Products required" });
     }
 
+    const parsedProducts = JSON.parse(products);
+
+    // 🔒 Fetch actual products from DB
+    const productIds = parsedProducts.map(p => p.productId);
+    const dbProducts = await Product.find({ _id: { $in: productIds } });
+
+    if (!dbProducts.length) {
+      return res.status(400).json({ message: "Invalid products" });
+    }
+
+    // 🔒 Enforce ONE COMPANY per order
+    const companyId = dbProducts[0].companyId.toString();
+    const hasMixedCompany = dbProducts.some(
+      p => p.companyId.toString() !== companyId
+    );
+
+    if (hasMixedCompany) {
+      return res.status(400).json({
+        message: "Products from multiple companies are not allowed in one order",
+      });
+    }
+
+    // ✅ Create order with COMPANY OWNERSHIP
     const order = new Order({
       userId,
-      products: JSON.parse(products),
+      company: companyId,
+      products: parsedProducts,
       subtotal: Number(subtotal),
       total: Number(total),
       shipping: JSON.parse(shipping),
@@ -44,141 +74,211 @@ router.post("/bank-transfer", auth, upload.single("receipt"), async (req, res) =
     const savedOrder = await order.save();
     res.status(201).json(savedOrder);
   } catch (err) {
-    console.error("Error creating bank transfer order:", err);
-    res.status(500).json({ message: "Error creating bank transfer order", error: err.message });
+    console.error("❌ Bank transfer order error:", err);
+    res.status(500).json({ message: err.message });
   }
 });
 
-
-// CREATE (other payment flows
+// =======================================================
+// CREATE ORDER (OTHER PAYMENT FLOWS) — SAFE DEFAULT
+// =======================================================
 router.post("/", auth, async (req, res) => {
   try {
     const newOrder = new Order(req.body);
     const savedOrder = await newOrder.save();
-    res.status(200).send(savedOrder);
+    res.status(200).json(savedOrder);
   } catch (err) {
-    res.status(500).send(err);
+    res.status(500).json(err);
   }
 });
 
-// UPDATE generic (keeps existing)
+// =======================================================
+// UPDATE ORDER — COMPANY ADMIN ONLY (OWN ORDERS)
+// =======================================================
 router.put("/:id", isAdmin, async (req, res) => {
   try {
-    const updatedOrder = await Order.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true });
-    res.status(200).send(updatedOrder);
+    const order = await Order.findOne({
+      _id: req.params.id,
+      company: req.user.companyId,
+    });
+
+    if (!order) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    Object.assign(order, req.body);
+    const updatedOrder = await order.save();
+
+    res.status(200).json(updatedOrder);
   } catch (err) {
-    res.status(500).send(err);
+    res.status(500).json(err);
   }
 });
 
-// MARK PAYMENT AS PAID
+// =======================================================
+// MARK PAYMENT AS PAID — COMPANY SAFE
+// =======================================================
 router.put("/:id/payment", isAdmin, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    const order = await Order.findOne({
+      _id: req.params.id,
+      company: req.user.companyId,
+    });
+
+    if (!order) return res.status(403).json({ message: "Not authorized" });
 
     if (order.payment_status === "paid") {
-      return res.status(400).json({ message: "Order already marked as paid" });
+      return res.status(400).json({ message: "Already paid" });
     }
 
     order.payment_status = "paid";
-    const updated = await order.save();
-    res.status(200).json(updated);
+    res.status(200).json(await order.save());
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating payment status", error: err.message });
+    res.status(500).json(err);
   }
 });
 
-// MARK DELIVERY AS DELIVERED
+// =======================================================
+// MARK DELIVERY AS DELIVERED — COMPANY SAFE
+// =======================================================
 router.put("/:id/delivery", isAdmin, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    const order = await Order.findOne({
+      _id: req.params.id,
+      company: req.user.companyId,
+    });
+
+    if (!order) return res.status(403).json({ message: "Not authorized" });
 
     if (order.delivery_status === "delivered") {
-      return res.status(400).json({ message: "Order already marked as delivered" });
+      return res.status(400).json({ message: "Already delivered" });
     }
 
     order.delivery_status = "delivered";
-    const updated = await order.save();
-    res.status(200).json(updated);
+    res.status(200).json(await order.save());
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating delivery status", error: err.message });
+    res.status(500).json(err);
   }
 });
 
-// DELETE order — only allow if delivered (safer)
+// =======================================================
+// DELETE ORDER — ONLY OWN & DELIVERED
+// =======================================================
 router.delete("/:id", isAdmin, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    const order = await Order.findOne({
+      _id: req.params.id,
+      company: req.user.companyId,
+    });
+
+    if (!order) return res.status(403).json({ message: "Not authorized" });
 
     if (order.delivery_status !== "delivered") {
       return res.status(400).json({ message: "Only delivered orders can be deleted" });
     }
 
-    await Order.findByIdAndDelete(req.params.id);
-    res.status(200).send({ message: "Order has been deleted" });
+    await Order.findByIdAndDelete(order._id);
+    res.status(200).json({ message: "Order deleted" });
   } catch (err) {
-    res.status(500).send(err);
+    res.status(500).json(err);
   }
 });
 
-// GET USER ORDERS
+// =======================================================
+// GET USER ORDERS (CUSTOMER)
+// =======================================================
 router.get("/find/:userId", isUser, async (req, res) => {
   try {
     const orders = await Order.find({ userId: req.params.userId });
-    res.status(200).send(orders);
+    res.status(200).json(orders);
   } catch (err) {
-    res.status(500).send(err);
+    res.status(500).json(err);
   }
 });
 
-// GET ALL ORDERS
+// =======================================================
+// GET COMPANY ORDERS (ADMIN DASHBOARD)
+// =======================================================
 router.get("/", isAdmin, async (req, res) => {
-  const query = req.query.new;
   try {
-    const orders = query
-      ? await Order.find().sort({ _id: -1 }).limit(4)
-      : await Order.find().sort({ _id: -1 });
-    res.status(200).send(orders);
+    const orders = await Order.find({
+      company: req.user.companyId,
+    }).sort({ _id: -1 });
+
+    res.status(200).json(orders);
   } catch (err) {
-    console.log(err);
-    res.status(500).send(err);
+    res.status(500).json(err);
   }
 });
 
-// GET MONTHLY INCOME
+// =======================================================
+// COMPANY MONTHLY INCOME
+// =======================================================
 router.get("/income/stats", isAdmin, async (req, res) => {
-  const previousMonth = moment().month(moment().month() - 1).set("date", 1).format("YYYY-MM-DD HH:mm:ss");
+  const previousMonth = moment()
+    .month(moment().month() - 1)
+    .set("date", 1)
+    .toDate();
+
   try {
     const income = await Order.aggregate([
-      { $match: { createdAt: { $gte: new Date(previousMonth) } } },
-      { $project: { month: { $month: "$createdAt" }, sales: "$total" } },
-      { $group: { _id: "$month", total: { $sum: "$sales" } } },
+      {
+        $match: {
+          company: req.user.companyId,
+          createdAt: { $gte: previousMonth },
+        },
+      },
+      {
+        $project: {
+          month: { $month: "$createdAt" },
+          sales: "$total",
+        },
+      },
+      {
+        $group: {
+          _id: "$month",
+          total: { $sum: "$sales" },
+        },
+      },
     ]);
-    res.status(200).send(income);
+
+    res.status(200).json(income);
   } catch (err) {
-    console.log(err);
-    res.status(500).send(err);
+    res.status(500).json(err);
   }
 });
 
-// GET WEEKLY SALES
+// =======================================================
+// COMPANY WEEKLY SALES
+// =======================================================
 router.get("/week-sales", isAdmin, async (req, res) => {
-  const last7Days = moment().day(moment().day() - 7).format("YYYY-MM-DD HH:mm:ss");
+  const last7Days = moment().subtract(7, "days").toDate();
+
   try {
     const income = await Order.aggregate([
-      { $match: { createdAt: { $gte: new Date(last7Days) } } },
-      { $project: { day: { $dayOfWeek: "$createdAt" }, sales: "$total" } },
-      { $group: { _id: "$day", total: { $sum: "$sales" } } },
+      {
+        $match: {
+          company: req.user.companyId,
+          createdAt: { $gte: last7Days },
+        },
+      },
+      {
+        $project: {
+          day: { $dayOfWeek: "$createdAt" },
+          sales: "$total",
+        },
+      },
+      {
+        $group: {
+          _id: "$day",
+          total: { $sum: "$sales" },
+        },
+      },
     ]);
-    res.status(200).send(income);
+
+    res.status(200).json(income);
   } catch (err) {
-    console.log(err);
-    res.status(500).send(err);
+    res.status(500).json(err);
   }
 });
 

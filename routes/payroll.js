@@ -151,7 +151,7 @@ router.post("/generate", auth, isAdmin, async (req, res) => {
         computedBy: req.user._id
       });
 
-      // Record NHIS
+      // Record NHIS emplyee
       await CompanyTaxLedger.create({
         companyId: employee.companyId._id,
         taxType: "NHIS",
@@ -163,6 +163,20 @@ router.post("/generate", auth, isAdmin, async (req, res) => {
         sourceRefs: [payroll._id],
         computedBy: req.user._id
       });
+
+
+      // Record NHIS Employer Contribution (NEW)
+await CompanyTaxLedger.create({
+  companyId: employee.companyId._id,
+  taxType: "NHIS_EMPLOYER",
+  period,
+  basisAmount: grossSalary,
+  rate: settings.nhisEmployer,
+  taxAmount: nhisEmployerContribution,
+  source: "Payroll",
+  sourceRefs: [payroll._id],
+  computedBy: req.user._id
+});
 
       results.push(payroll);
     }
@@ -276,7 +290,7 @@ router.post("/send-bulk", auth, isAdmin, async (req, res) => {
       // NHF
       await CompanyTaxLedger.create({
         companyId: employee.companyId._id,
-        taxType: "PAYE",
+        taxType: "NHF",
         period,
         basisAmount: grossSalary,
         rate: settings.nhfRate,
@@ -289,7 +303,7 @@ router.post("/send-bulk", auth, isAdmin, async (req, res) => {
       // NHIS
       await CompanyTaxLedger.create({
         companyId: employee.companyId._id,
-        taxType: "PAYE",
+        taxType: "NHIS",
         period,
         basisAmount: grossSalary,
         rate: settings.nhisEmployee,
@@ -298,6 +312,19 @@ router.post("/send-bulk", auth, isAdmin, async (req, res) => {
         sourceRefs: [payroll._id],
         computedBy: req.user._id
       });
+
+      // ✅ NEW: NHIS Employer Contribution
+await CompanyTaxLedger.create({
+  companyId: employee.companyId._id,
+  taxType: "NHIS_EMPLOYER",
+  period,
+  basisAmount: grossSalary,
+  rate: settings.nhisEmployer,
+  taxAmount: nhisEmployerContribution,
+  source: "Payroll",
+  sourceRefs: [payroll._id],
+  computedBy: req.user._id
+});
 
       createdCount++;
     }

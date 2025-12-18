@@ -91,61 +91,42 @@ router.post("/", isAdmin, upload.array("images"), async (req, res) => {
     console.log("📦 [CREATE PRODUCT] Raw req.body:", req.body);
     console.log("📦 [CREATE PRODUCT] Number of files:", (req.files || []).length);
 
-    const {
-      name,
-      category,
-      desc,
-      price,
-      originalPrice,
-      rating,
-      discountPercent,
-      features
-    } = req.body;
-
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: "No images uploaded" });
     }
 
-    // --- features parsing: always normalize to array of strings ---
+    // Features normalization
     let parsedFeatures = [];
-    if (features !== undefined && features !== null && features !== "") {
-      if (Array.isArray(features)) {
-        // multer may give arrays in some cases
-        parsedFeatures = features.map(String).map(f => f.trim()).filter(Boolean);
+    if (req.body.features) {
+      if (Array.isArray(req.body.features)) {
+        parsedFeatures = req.body.features.map(String).map(f => f.trim()).filter(Boolean);
       } else {
-        // Try parse JSON, otherwise comma-split
         try {
-          const maybe = JSON.parse(features);
-          if (Array.isArray(maybe)) {
-            parsedFeatures = maybe.map(String).map(f => f.trim()).filter(Boolean);
-          } else if (typeof maybe === "string") {
-            parsedFeatures = maybe.split(",").map(f => f.trim()).filter(Boolean);
-          }
-        } catch (err) {
-          // Not JSON -> treat as comma-separated string
-          parsedFeatures = String(features).split(",").map(f => f.trim()).filter(Boolean);
+          const maybe = JSON.parse(req.body.features);
+          if (Array.isArray(maybe)) parsedFeatures = maybe.map(String).map(f => f.trim()).filter(Boolean);
+          else parsedFeatures = String(req.body.features).split(",").map(f => f.trim()).filter(Boolean);
+        } catch {
+          parsedFeatures = String(req.body.features).split(",").map(f => f.trim()).filter(Boolean);
         }
       }
     }
 
-    // --- numeric parsing with safe fallbacks ---
-    const parsedPrice = price !== undefined && price !== "" ? Number(price) : 0;
-    const parsedOriginal = originalPrice !== undefined && originalPrice !== "" ? Number(originalPrice) : 0;
-    const parsedRating = rating !== undefined && rating !== "" ? Number(rating) : 0;
-    // Use nullish coalescing to accept 0 as valid
-    const parsedDiscount = (discountPercent !== undefined && discountPercent !== "") ? Number(discountPercent) : 0;
+    // Numeric parsing
+    const parsedPrice = req.body.price !== undefined && req.body.price !== "" ? Number(req.body.price) : 0;
+    const parsedOriginal = req.body.originalPrice !== undefined && req.body.originalPrice !== "" ? Number(req.body.originalPrice) : 0;
+    const parsedRating = req.body.rating !== undefined && req.body.rating !== "" ? Number(req.body.rating) : 0;
+    const parsedDiscount = req.body.discountPercent !== undefined && req.body.discountPercent !== "" ? Number(req.body.discountPercent) : 0;
 
-    // Validate numbers
-    if (isNaN(parsedPrice)) return res.status(400).json({ message: "Invalid price" });
-    if (isNaN(parsedDiscount)) return res.status(400).json({ message: "Invalid discountPercent" });
-
-    // upload images to Appwrite
+    // Upload images to Appwrite
     const images = await Promise.all(req.files.map(file => uploadToAppwrite(file)));
 
+    // Save product with company isolation
     const product = new Product({
-      name,
-      category,
-      desc,
+      companyId: req.user.companyId,
+      createdBy: req.user._id, // 🔥 Track uploader
+      name: req.body.name,
+      category: req.body.category,
+      desc: req.body.desc,
       price: parsedPrice,
       originalPrice: parsedOriginal,
       rating: parsedRating,
@@ -155,14 +136,14 @@ router.post("/", isAdmin, upload.array("images"), async (req, res) => {
     });
 
     const savedProduct = await product.save();
-    console.log("✅ Product saved:", savedProduct._id, "discountPercent:", savedProduct.discountPercent, "features:", savedProduct.features);
+    console.log("✅ Product saved:", savedProduct._id);
+
     res.status(200).json(savedProduct);
   } catch (error) {
     console.error("❌ [CREATE PRODUCT] Error:", error);
     res.status(500).json({ message: error.message || String(error) });
   }
 });
-
 
 
 
@@ -197,50 +178,41 @@ router.post("/:id/wishlist", async (req, res) => {
 router.put("/:id", isAdmin, upload.array("images"), async (req, res) => {
   try {
     const updateData = { ...req.body };
-    console.log("✏️ [UPDATE PRODUCT] Raw updateData:", updateData, "files:", (req.files || []).length);
 
-    // Handle image uploads if present
+    // Fetch only products belonging to admin's company
+    const product = await Product.findOne({ _id: req.params.id, companyId: req.user.companyId });
+    if (!product) return res.status(403).json({ message: "Not authorized to update this product" });
+
+    // Handle image uploads
     if (req.files && req.files.length > 0) {
       const images = await Promise.all(req.files.map((file) => uploadToAppwrite(file)));
       updateData.images = images;
     }
 
-    // features normalization (same logic as create)
+    // Features normalization
     if (updateData.features !== undefined && updateData.features !== null && updateData.features !== "") {
       if (!Array.isArray(updateData.features)) {
         try {
           const maybe = JSON.parse(updateData.features);
-          if (Array.isArray(maybe)) {
-            updateData.features = maybe.map(String).map(f => f.trim()).filter(Boolean);
-          } else {
-            updateData.features = String(updateData.features).split(",").map(f => f.trim()).filter(Boolean);
-          }
+          if (Array.isArray(maybe)) updateData.features = maybe.map(String).map(f => f.trim()).filter(Boolean);
+          else updateData.features = String(updateData.features).split(",").map(f => f.trim()).filter(Boolean);
         } catch {
           updateData.features = String(updateData.features).split(",").map(f => f.trim()).filter(Boolean);
         }
-      } else {
-        updateData.features = updateData.features.map(String).map(f => f.trim()).filter(Boolean);
-      }
+      } else updateData.features = updateData.features.map(String).map(f => f.trim()).filter(Boolean);
     }
 
-    // numeric conversions: explicit checks so 0 is accepted
+    // Numeric conversions
     if (updateData.price !== undefined && updateData.price !== "") updateData.price = Number(updateData.price);
     if (updateData.originalPrice !== undefined && updateData.originalPrice !== "") updateData.originalPrice = Number(updateData.originalPrice);
     if (updateData.rating !== undefined && updateData.rating !== "") updateData.rating = Number(updateData.rating);
     if (updateData.discountPercent !== undefined && updateData.discountPercent !== "") updateData.discountPercent = Number(updateData.discountPercent);
 
-    const updatedProduct = await Product.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    );
+    Object.assign(product, updateData);
+    const updatedProduct = await product.save();
 
-    if (!updatedProduct) return res.status(404).json({ message: "Product not found" });
-
-    console.log("✅ Product updated:", updatedProduct._id, "discountPercent:", updatedProduct.discountPercent, "features:", updatedProduct.features);
     res.status(200).json(updatedProduct);
   } catch (error) {
-    console.error("❌ [UPDATE PRODUCT] Error:", error);
     res.status(500).json({ message: error.message || String(error) });
   }
 });
@@ -249,43 +221,26 @@ router.put("/:id", isAdmin, upload.array("images"), async (req, res) => {
 
 // ---- DELETE PRODUCT ----
 router.delete("/:id", isAdmin, async (req, res) => {
-  console.log("🔴 [DELETE /products/:id] Delete request for ID:", req.params.id);
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product) {
-      console.warn("⚠️ [DELETE /products/:id] Product not found");
-      return res.status(404).json({ message: "Product not found" });
-    }
+    const product = await Product.findOne({ _id: req.params.id, companyId: req.user.companyId });
+    if (!product) return res.status(403).json({ message: "Not authorized to delete this product" });
 
     if (product.images && Array.isArray(product.images)) {
-      console.log(`🗑️ [DELETE /products/:id] Deleting ${product.images.length} images from Appwrite...`);
       for (const image of product.images) {
         if (image.id) {
           try {
             await axios.delete(
               `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${image.id}`,
-              {
-                headers: {
-                  "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
-                  "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
-                },
-              }
+              { headers: { "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID, "X-Appwrite-Key": process.env.APPWRITE_API_KEY } }
             );
-            console.log(`✅ Deleted image ${image.id} from Appwrite`);
-          } catch (err) {
-            console.warn(`⚠️ Error deleting image ${image.id}:`, err.message);
-          }
+          } catch {}
         }
       }
     }
 
-    console.log("💾 [DELETE /products/:id] Removing product from MongoDB...");
-    const deletedProduct = await Product.findByIdAndDelete(req.params.id);
-    console.log("✅ [DELETE /products/:id] Product deleted successfully");
-
+    const deletedProduct = await Product.findByIdAndDelete(product._id);
     res.status(200).json(deletedProduct);
   } catch (error) {
-    console.error("❌ [DELETE /products/:id] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
@@ -294,30 +249,85 @@ router.delete("/:id", isAdmin, async (req, res) => {
 router.get("/", async (req, res) => {
   console.log("📥 [GET /products] Fetch all products request");
   try {
-    const products = await Product.find();
+    // Nested population: get uploader's company name
+    const products = await Product.find().populate({
+      path: "createdBy",
+      select: "companyId",
+      populate: { path: "companyId", select: "name" } // populate company name
+    });
+
+    // Transform response to include uploaderCompanyName
+    const response = products.map(product => ({
+      ...product.toObject(),
+      uploaderCompanyName: product.createdBy?.companyId?.name || "Unknown"
+    }));
+
     console.log(`✅ [GET /products] Found ${products.length} products`);
 
     // Log how many have discount
     const discountedCount = products.filter(p => Number(p.discountPercent) > 0).length;
     console.log(`💰 Discounted products count: ${discountedCount}`);
 
-    res.status(200).json(products);
+    res.status(200).json(response);
   } catch (error) {
     console.error("❌ [GET /products] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
+
+
+
+// Admin product list (table with delete/update buttons)
+// ---- GET ALL PRODUCTS FOR ADMIN (COMPANY ISOLATED) ----
+router.get("/admin", isAdmin, async (req, res) => {
+  try {
+    const products = await Product.find({ companyId: req.user.companyId })
+      .populate({
+        path: "createdBy",
+        select: "companyId",
+        populate: { path: "companyId", select: "name" } // nested populate for company name
+      });
+
+    // Map products to include uploaderCompanyName directly
+    const result = products.map(p => ({
+      ...p.toObject(),
+      uploaderCompanyName: p.createdBy?.companyId?.name || "Unknown"
+    }));
+
+    console.log(`✅ [GET /products/admin] Found ${products.length} products for company ${req.user.companyId}`);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("❌ [GET /products/admin] Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+
 // ---- GET SINGLE PRODUCT ----
 router.get("/:id", async (req, res) => {
   console.log("📥 [GET /products/:id] Fetch single product request:", req.params.id);
   try {
-    const product = await Product.findById(req.params.id);
+    // Nested population: get uploader's company name
+    const product = await Product.findById(req.params.id)
+      .populate({
+        path: "createdBy",
+        select: "companyId",
+        populate: { path: "companyId", select: "name" } // populate the company name
+      });
+
     if (!product) {
       console.warn("⚠️ [GET /products/:id] Product not found");
       return res.status(404).json({ message: "Product not found" });
     }
+
+    // Add uploaderCompanyName directly to the response
+    const response = {
+      ...product.toObject(),
+      uploaderCompanyName: product.createdBy?.companyId?.name || "Unknown"
+    };
+
     console.log("✅ [GET /products/:id] Product found:", product._id);
-    res.status(200).json(product);
+    res.status(200).json(response);
   } catch (error) {
     console.error("❌ [GET /products/:id] Error:", error.message);
     res.status(500).json({ message: error.message });
@@ -328,9 +338,21 @@ router.get("/:id", async (req, res) => {
 router.get("/category/:category", async (req, res) => {
   console.log("📥 [GET /products/category/:category] Fetch products for category:", req.params.category);
   try {
-    const products = await Product.find({ category: req.params.category });
+    // Nested population: get uploader's company name
+    const products = await Product.find({ category: req.params.category }).populate({
+      path: "createdBy",
+      select: "companyId",
+      populate: { path: "companyId", select: "name" } // populate company name
+    });
+
+    // Transform response to include uploaderCompanyName
+    const response = products.map(product => ({
+      ...product.toObject(),
+      uploaderCompanyName: product.createdBy?.companyId?.name || "Unknown"
+    }));
+
     console.log(`✅ [GET /products/category/:category] Found ${products.length} products`);
-    res.status(200).json(products);
+    res.status(200).json(response);
   } catch (error) {
     console.error("❌ [GET /products/category/:category] Error:", error.message);
     res.status(500).json({ message: error.message });

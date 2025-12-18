@@ -7,9 +7,10 @@ if (!process.env.CONNECTION_STRING) {
   console.error("❌ CONNECTION_STRING missing in .env");
   process.exit(1);
 }
-
+//welbeg233@electricity.com
+//oba@gmail.com
 // Email of the account to make admin
-const targetEmail = "welbeg233@electricity.com";
+const targetEmail = "oba@gmail.com";
 
 const makeAdmin = async () => {
   try {
