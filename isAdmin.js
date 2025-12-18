@@ -10,7 +10,8 @@ if (!process.env.CONNECTION_STRING) {
 //welbeg233@electricity.com
 //oba@gmail.com
 // Email of the account to make admin
-const targetEmail = "oba@gmail.com";
+//techwireadmin@techwireict.com
+const targetEmail = "techwireadmin@techwireict.com";
 
 const makeAdmin = async () => {
   try {
