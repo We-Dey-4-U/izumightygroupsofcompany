@@ -8,10 +8,11 @@ if (!process.env.CONNECTION_STRING) {
   process.exit(1);
 }
 //welbeg233@electricity.com
+//admindelight@delightsome.com
 //oba@gmail.com
 // Email of the account to make admin
 //techwireadmin@techwireict.com
-const targetEmail = "techwireadmin@techwireict.com";
+const targetEmail = "admindelight@delightsome.com";
 
 const makeAdmin = async () => {
   try {

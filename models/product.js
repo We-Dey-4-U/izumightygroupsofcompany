@@ -62,6 +62,30 @@ const productSchema = new mongoose.Schema(
     "Sportswear",
     "Traditional Wear",
 
+
+    // ================= FABRICS & TRADITIONAL (NEW) =================
+  "Aso Ebi",
+  "Swiss Fabrics",
+  "Aso Oke",
+  "Ankara Fabrics",
+  "Lace Fabrics",
+  "George Fabrics",
+  "Voile Lace",
+  "Dry Lace",
+  "Guipure Lace",
+
+  // Head & Accessories
+  "3D Head Gear",
+  "Gele",
+  "Caps & Headwear",
+  "Traditional Headwear",
+
+  // Occasion-Based
+  "Wedding Fabrics",
+  "Party & Celebration Fabrics",
+  "Bridal Fabrics",
+  "Ceremonial Wear",
+
     // ================= GENERAL =================
     "All Products"
   ]
