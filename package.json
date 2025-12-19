@@ -13,7 +13,7 @@
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.2",
     "body-parser": "^1.20.2",
-    "cloudinary": "^1.35.0",
+    "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
@@ -26,9 +26,11 @@
     "multer": "^2.0.2",
     "node-appwrite": "^20.2.1",
     "nodemailer": "^7.0.11",
-    "nodemon": "^2.0.21",
     "prerender-node": "^3.8.3",
     "stripe": "^11.15.0",
     "uuid": "^8.3.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
   }
 }
