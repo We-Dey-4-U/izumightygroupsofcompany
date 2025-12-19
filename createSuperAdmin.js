@@ -13,7 +13,7 @@ const superAdminData = {
   name: "Techwireict SuperAdmin",
   email: "superadmin@techwireict.com",
   password: "SuperAdmin@123",
-  isSuperAdmin: true,      // Has full privilege
+  isSuperAdmin: true,      // Has full privileg
   isAdmin: false,
   isStaff: false,
   isSuperStakeholder: false,

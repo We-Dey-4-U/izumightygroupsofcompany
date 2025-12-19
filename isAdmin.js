@@ -2,17 +2,18 @@ require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
 const { User } = require("./models/user");
 
-// Check MongoDB connection string
+// Check MongoDB connection string 
 if (!process.env.CONNECTION_STRING) {
   console.error("❌ CONNECTION_STRING missing in .env");
   process.exit(1);
 }
+//Ikesonlimited@techwireict.com
 //welbeg233@electricity.com
 //admindelight@delightsome.com
 //oba@gmail.com
 // Email of the account to make admin
 //techwireadmin@techwireict.com
-const targetEmail = "admindelight@delightsome.com";
+const targetEmail = "Ikesonlimited@techwireict.com";
 
 const makeAdmin = async () => {
   try {
