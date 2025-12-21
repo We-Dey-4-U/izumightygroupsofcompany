@@ -358,7 +358,7 @@ router.get("/expenses-summary", auth, async (req, res) => {
       monthlyIncome: monthlyIncome[0]?.totalAmount || 0,
 
       // ✅ THIS IS WHAT DASHBOARD MUST DISPLAY
-      monthlyBalance:
+        monthlyBalance:
   monthlyBalance[0]?.balanceAfterTransaction ??
   ((monthlyIncome[0]?.totalAmount || 0) -
    (monthlyExpense[0]?.totalAmount || 0)),
