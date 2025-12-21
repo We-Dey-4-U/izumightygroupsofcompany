@@ -249,10 +249,13 @@ router.get("/attendance-summary", auth, async (req, res) => {
 // 4️⃣ EXPENSES SUMMARY
 // -----------------------------
 // -----------------------------
-// 5️⃣ EXPENSE SUMMARY (Weekly / Monthly)
+// -----------------------------
+// EXPENSE SUMMARY (Weekly / Monthly)
 // -----------------------------
 router.get("/expenses-summary", auth, async (req, res) => {
-  if (!req.user.isAdmin && !req.user.isSuperStakeholder) return res.status(403).json({ message: "Access denied" });
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Access denied" });
+  }
 
   try {
     const startOfWeek = moment().startOf("isoWeek").toDate();
@@ -260,15 +263,92 @@ router.get("/expenses-summary", auth, async (req, res) => {
     const startOfMonth = moment().startOf("month").toDate();
     const endOfMonth = moment().endOf("month").toDate();
 
-    const usersInCompany = await User.find({ company: req.user.company }).select("_id");
-    const companyUserIds = usersInCompany.map(u => u._id);
+    const [
+      weeklyExpense,
+      weeklyIncome,
+      monthlyExpense,
+      monthlyIncome,
+      monthlyBalance,
+      topCategories,
+    ] = await Promise.all([
+      // Weekly Expense (amount)
+      Expense.aggregate([
+        {
+          $match: {
+            companyId: req.user.companyId,
+            type: "Expense",
+            dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
+          },
+        },
+        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
+      ]),
 
-    const [weeklyExpense, weeklyIncome, monthlyExpense, monthlyIncome, topCategories] = await Promise.all([
-      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek }, type: "Expense", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
-      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek }, type: "Income", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
-      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth }, type: "Expense", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
-      Expense.aggregate([{ $match: { dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth }, type: "Income", enteredByUser: { $in: companyUserIds } } }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
-      Expense.aggregate([{ $match: { enteredByUser: { $in: companyUserIds }, dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth } } }, { $group: { _id: "$expenseCategory", total: { $sum: "$amount" } } }, { $sort: { total: -1 } }, { $limit: 5 }])
+      // Weekly Income (amount)
+      Expense.aggregate([
+        {
+          $match: {
+            companyId: req.user.companyId,
+            type: "Income",
+            dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
+          },
+        },
+        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
+      ]),
+
+      // Monthly Expense (amount)
+      Expense.aggregate([
+        {
+          $match: {
+            companyId: req.user.companyId,
+            type: "Expense",
+            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
+          },
+        },
+        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
+      ]),
+
+      // Monthly Income (amount)
+      Expense.aggregate([
+        {
+          $match: {
+            companyId: req.user.companyId,
+            type: "Income",
+            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
+          },
+        },
+        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
+      ]),
+
+      // ✅ MONTHLY CLOSING BALANCE (SOURCE OF TRUTH)
+      Expense.aggregate([
+        {
+          $match: {
+            companyId: req.user.companyId,
+            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
+          },
+        },
+        { $sort: { dateOfExpense: -1, createdAt: -1 } },
+        { $limit: 1 },
+        { $project: { balanceAfterTransaction: 1 } },
+      ]),
+
+      // Top Categories
+      Expense.aggregate([
+        {
+          $match: {
+            companyId: req.user.companyId,
+            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
+          },
+        },
+        {
+          $group: {
+            _id: "$expenseCategory",
+            total: { $sum: "$amount" },
+          },
+        },
+        { $sort: { total: -1 } },
+        { $limit: 5 },
+      ]),
     ]);
 
     res.status(200).json({
@@ -276,16 +356,20 @@ router.get("/expenses-summary", auth, async (req, res) => {
       weeklyIncome: weeklyIncome[0]?.totalAmount || 0,
       monthlyExpenses: monthlyExpense[0]?.totalAmount || 0,
       monthlyIncome: monthlyIncome[0]?.totalAmount || 0,
-      topCategories: topCategories.map(c => ({ category: c._id, total: c.total })),
-    });
 
+      // ✅ THIS IS WHAT DASHBOARD MUST DISPLAY
+      monthlyBalance: monthlyBalance[0]?.balanceAfterTransaction || 0,
+
+      topCategories: topCategories.map((c) => ({
+        category: c._id,
+        total: c.total,
+      })),
+    });
   } catch (err) {
     console.error("❌ Expenses Summary Error:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
-
-
 
 // -----------------------------
 // 5️⃣ STAFF PERFORMANCE TREND

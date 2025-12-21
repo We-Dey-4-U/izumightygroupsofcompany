@@ -8,7 +8,7 @@ const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 
 
-// ---- 🧠 Appwrite Connectivity Check ---
+// ---- 🧠 Appwrite Connectivity Check --
 (async () => {
   console.log("🧠 Checking Appwrite configuration...");
   const { APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_BUCKET_ID, APPWRITE_API_KEY } = process.env;

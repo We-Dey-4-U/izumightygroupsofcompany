@@ -10,7 +10,7 @@ const expenseSchema = new mongoose.Schema(
     },
 
     dateOfExpense: { type: Date, required: true },
-    expenseCategory: { type: String, required: true },
+    expenseCategory: { type: String },
 
     taxFlags: {
       vatClaimable: { type: Boolean, default: false },

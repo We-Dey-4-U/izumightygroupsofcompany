@@ -60,39 +60,76 @@ async function uploadToAppwrite(file) {
 }
 
 // ---------- CREATE EXPENSE ----------
+// ---------- CREATE EXPENSE ----------
 router.post("/", auth, upload.array("receipts"), async (req, res) => {
   try {
-    const { dateOfExpense, expenseCategory, description, paidTo, amount, type = "Expense", paymentMethod, department, approvedBy, status } = req.body;
-    if (!dateOfExpense || !expenseCategory || !amount) return res.status(400).json({ message: "Missing required fields" });
+    const {
+      dateOfExpense,
+      expenseCategory,
+      description,
+      paidTo,
+      amount,
+      type = "Expense",
+      paymentMethod,
+      department,
+      approvedBy,
+      status,
+    } = req.body;
 
-    const receiptUploads = req.files?.length ? await Promise.all(req.files.map(uploadToAppwrite)) : [];
+    // ✅ REQUIRED FIELDS CHECK
+    if (!dateOfExpense || !expenseCategory || !amount) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
 
-    const lastRecord = await Expense.findOne({ companyId: req.user.companyId }).sort({ createdAt: -1 });
-    const previousBalance = lastRecord ? lastRecord.balanceAfterTransaction : 0;
-    const newBalance = type === "Expense" ? previousBalance - Number(amount) : previousBalance + Number(amount);
+    // ✅ FIX 1: ENFORCE TRANSACTION TYPE
+    if (!["Income", "Expense"].includes(type)) {
+      return res.status(400).json({ message: "Invalid transaction type" });
+    }
 
+    console.log("Saving transaction type:", type);
+
+    // ---------- Upload receipts ----------
+    const receiptUploads = req.files?.length
+      ? await Promise.all(req.files.map(uploadToAppwrite))
+      : [];
+
+    // ---------- Ledger balance ----------
+    const lastRecord = await Expense.findOne({
+      companyId: req.user.companyId,
+    }).sort({ createdAt: -1 });
+
+    const previousBalance = lastRecord
+      ? lastRecord.balanceAfterTransaction
+      : 0;
+
+    const newBalance =
+      type === "Expense"
+        ? previousBalance - Number(amount)
+        : previousBalance + Number(amount);
+
+    // ---------- Create Expense ----------
     const expense = new Expense({
-  companyId: req.user.companyId,
-  dateOfExpense,
-  expenseCategory,
-  description,
-  paidTo,
-  amount: Number(amount),
-  type,
-  balanceAfterTransaction: newBalance,
-  paymentMethod,
-  department,
-  enteredByUser: req.user._id,
-  approvedBy: req.user.isAdmin ? approvedBy || "" : "",
-  status: req.user.isAdmin ? status || "Pending" : "Pending",
-  receiptUploads,
-  taxFlags: {
-    vatClaimable: req.body.taxFlags?.vatClaimable || false,
-    whtApplicable: req.body.taxFlags?.whtApplicable || false,
-    citAllowable: req.body.taxFlags?.citAllowable ?? true,
-  },
-  whtRate: req.body.whtRate || 0,
-});
+      companyId: req.user.companyId,
+      dateOfExpense,
+      expenseCategory,
+      description,
+      paidTo,
+      amount: Number(amount),
+      type,
+      balanceAfterTransaction: newBalance,
+      paymentMethod,
+      department,
+      enteredByUser: req.user._id,
+      approvedBy: req.user.isAdmin ? approvedBy || "" : "",
+      status: req.user.isAdmin ? status || "Pending" : "Pending",
+      receiptUploads,
+      taxFlags: {
+        vatClaimable: req.body.taxFlags?.vatClaimable || false,
+        whtApplicable: req.body.taxFlags?.whtApplicable || false,
+        citAllowable: req.body.taxFlags?.citAllowable ?? true,
+      },
+      whtRate: req.body.whtRate || 0,
+    });
 
     const saved = await expense.save();
     res.status(201).json(saved);
@@ -153,8 +190,7 @@ router.put("/:id", auth, upload.array("receipts"), async (req, res) => {
   }
 });
 
-// ---------- UPDATE STATUS ----------
-// ---------- UPDATE STATUS ----------
+
 // ---------- UPDATE EXPENSE STATUS ----------
 router.patch("/:id/status", auth, async (req, res) => {
   try {
