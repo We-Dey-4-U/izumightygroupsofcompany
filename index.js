@@ -6,6 +6,7 @@ const prerender = require("prerender-node");
 const helmet = require("helmet");
 const Sentry = require("@sentry/node");
 const Tracing = require("@sentry/tracing");
+const rateLimit = require("express-rate-limit");
 
 // Routes
 const register = require("./routes/register");
@@ -88,12 +89,30 @@ app.use(
 );
 
 /* ------------------------------
-   RATE LIMITER
+   BOT / SCRAPER BLOCKING
+------------------------------ */
+app.use((req, res, next) => {
+  const ua = (req.headers["user-agent"] || "").toLowerCase();
+  const bots = ["curl", "wget", "python-requests", "scrapy"];
+  if (bots.some(bot => ua.includes(bot))) {
+    return res.status(403).json({ message: "Bots are not allowed" });
+  }
+  next();
+});
+
+/* ------------------------------
+   RATE LIMITERS
 ------------------------------ */
 const defaultLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 100,
   message: "Too many requests from this IP, please try later",
+});
+
+const productLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: "Too many requests to products, slow down",
 });
 
 /* ------------------------------
@@ -120,8 +139,8 @@ app.use("/uploads", express.static("uploads"));
 ------------------------------ */
 app.use("/api/register", defaultLimiter, register);
 app.use("/api/login", defaultLimiter, login);
-app.use("/api/products", productsRoute);
-app.get("/products", (req, res) => res.send(products));
+app.use("/api/products", productLimiter, productsRoute);
+app.get("/products", productLimiter, (req, res) => res.send(products));
 
 /* ------------------------------
    AUTHENTICATED / PROTECTED ROUTES
@@ -168,7 +187,7 @@ mongoose
 /* ------------------------------
    ERROR HANDLING
 ------------------------------ */
-app.use(Sentry.Handlers.errorHandler()); // Sentry captures errors
+app.use(Sentry.Handlers.errorHandler());
 
 app.use((err, req, res, next) => {
   console.error(err);
