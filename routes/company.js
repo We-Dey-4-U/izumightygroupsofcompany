@@ -30,6 +30,13 @@ router.post(
     body("state").optional().trim(),
     body("isVATRegistered").optional().isBoolean(),
 
+    body("phone")
+  .trim()
+  .notEmpty()
+  .withMessage("Phone number is required")
+  .isLength({ min: 10 })
+  .withMessage("Phone number must be valid"),
+
     // BANK VALIDATION
     body("bank").exists().withMessage("Bank details are required"),
     body("bank.bankName")
@@ -72,6 +79,7 @@ router.post(
         state,
         isVATRegistered = false,
         bank,
+          phone,
       } = req.body;
 
       // 🔐 Ensure bank object is clean
@@ -95,6 +103,7 @@ router.post(
         tin,
         state,
         isVATRegistered,
+         phone,
         bank: sanitizedBank,
         code,
       });
@@ -172,8 +181,8 @@ router.post("/by-products", auth, async (req, res) => {
     }
 
     const company = await Company.findById(companyId).select(
-      "name bank"
-    );
+  "name phone bank"
+);
 
     res.json(company);
   } catch (err) {

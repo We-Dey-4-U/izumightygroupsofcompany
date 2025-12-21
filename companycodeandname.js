@@ -1,6 +1,6 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
-const Company = require("./models/Company"); // Adjust path if needed
+const Company = require("./models/Company"); // adjust path if needed
 
 const run = async () => {
   try {
@@ -17,12 +17,31 @@ const run = async () => {
     console.log("✅ Connected!");
 
     console.log("📦 Fetching all companies...");
-    const companies = await Company.find({}, { name: 1, code: 1, _id: 0 }); 
-    // {_id:0} hides the MongoDB _id field, only shows name & code
+    const companies = await Company.find(
+      {},
+      {
+        name: 1,
+        code: 1,
+        bank: 1,
+        _id: 0,
+      }
+    );
 
-    console.log("🏢 Companies and their codes:");
+    console.log("\n🏢 Companies, Codes & Bank Details:\n");
+
     companies.forEach((c, i) => {
-      console.log(`${i + 1}. ${c.name} — Code: ${c.code}`);
+      console.log(`🔹 ${i + 1}. Company Name: ${c.name}`);
+      console.log(`   Code: ${c.code}`);
+
+      if (c.bank) {
+        console.log(`   Bank Name: ${c.bank.bankName}`);
+        console.log(`   Account Number: ${c.bank.accountNumber}`);
+        console.log(`   Account Name: ${c.bank.accountName}`);
+      } else {
+        console.log("   ⚠️ No bank details provided");
+      }
+
+      console.log("--------------------------------------------------");
     });
 
     process.exit(0);

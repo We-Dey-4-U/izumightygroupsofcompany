@@ -13,6 +13,11 @@ const companySchema = new mongoose.Schema({
   state: String,
   isVATRegistered: Boolean,
 
+   phone: {
+    type: String,
+    required: true, // 🔥 REQUIRED going forward
+  },
+
   bank: bankSchema, // ✅ COMPANY BANK DETAILS
 
   code: { type: Number, required: true, unique: true },

@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const router = express.Router();
 const cors = require("cors");
+const { body, validationResult } = require("express-validator");
 const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 const Payroll = require("../models/Payroll");
 const { User } = require("../models/user");
@@ -45,148 +46,175 @@ async function uploadPayslip(fileBuffer, fileName) {
 }
 
 /** 🔹 SINGLE PAYROLL GENERATION */
-/** 🔹 SINGLE PAYROLL GENERATION */
-router.post("/generate", auth, isAdmin, async (req, res) => {
-  try {
-    const {
-      emails, month, year, basicSalary = 0, housingAllowance = 0,
-      medicalAllowance = 0, transportationAllowance = 0, leaveAllowance = 0,
-      pensionDeduction = 0, otherDeductions = 0
-    } = req.body;
+/** 🔹 SINGLE PAYROLL GENERATION WITH VALIDATION & SANITIZATION */
+router.post(
+  "/generate",
+  auth,
+  isAdmin,
+  [
+    body("emails").isArray({ min: 1 }).withMessage("Emails are required").bail()
+      .custom((arr) => arr.every(e => typeof e === "string" && e.includes("@"))).withMessage("Each email must be valid"),
+    body("month").isInt({ min: 1, max: 12 }).withMessage("Invalid month"),
+    body("year").isInt({ min: 2000 }).withMessage("Invalid year"),
+    body("basicSalary").optional().isFloat({ min: 0 }).withMessage("Invalid basicSalary"),
+    body("housingAllowance").optional().isFloat({ min: 0 }),
+    body("medicalAllowance").optional().isFloat({ min: 0 }),
+    body("transportationAllowance").optional().isFloat({ min: 0 }),
+    body("leaveAllowance").optional().isFloat({ min: 0 }),
+    body("pensionDeduction").optional().isFloat({ min: 0 }),
+    body("otherDeductions").optional().isFloat({ min: 0 }),
+  ],
+  async (req, res) => {
+    // Validate inputs
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    if (!emails || !emails.length) return res.status(400).json({ message: "Email(s) are required" });
+    try {
+      const {
+        emails, month, year, basicSalary = 0, housingAllowance = 0,
+        medicalAllowance = 0, transportationAllowance = 0, leaveAllowance = 0,
+        pensionDeduction = 0, otherDeductions = 0
+      } = req.body;
 
-    const results = [];
+      const results = [];
 
-    for (const email of emails) {
-      const employee = await User.findOne({ email }).populate("companyId");
-      if (!employee || !employee.companyId) continue;
+      for (const email of emails) {
+        const employee = await User.findOne({ email }).populate("companyId");
+        if (!employee || !employee.companyId) continue;
 
-      // Multi-tenant isolation
-      if (!req.user.isSuperStakeholder && employee.companyId._id.toString() !== req.user.companyId?.toString()) continue;
+        // Multi-tenant isolation
+        if (!req.user.isSuperStakeholder && employee.companyId._id.toString() !== req.user.companyId?.toString()) continue;
 
-      const existing = await Payroll.findOne({ employeeId: employee._id, month, year });
-      if (existing) continue;
+        const existing = await Payroll.findOne({ employeeId: employee._id, month, year });
+        if (existing) continue;
 
-      const grossSalary = Number(basicSalary) + Number(housingAllowance) + Number(medicalAllowance)
-        + Number(transportationAllowance) + Number(leaveAllowance);
+        const grossSalary = Number(basicSalary) + Number(housingAllowance) + Number(medicalAllowance)
+          + Number(transportationAllowance) + Number(leaveAllowance);
 
-      let settings = await TaxSettings.findOne({ companyId: employee.companyId._id });
-      if (!settings) {
-        settings = await TaxSettings.create({
+        let settings = await TaxSettings.findOne({ companyId: employee.companyId._id });
+        if (!settings) {
+          settings = await TaxSettings.create({
+            companyId: employee.companyId._id,
+            mode: "STANDARD_PAYE",
+            customPercent: 0,
+            nhfRate: 0.025,
+            nhisEmployee: 0.05,
+            nhisEmployer: 0.10
+          });
+        }
+
+        settings.nhfRate = settings.nhfRate ?? 0.025;
+        settings.nhisEmployee = settings.nhisEmployee ?? 0.05;
+        settings.nhisEmployer = settings.nhisEmployer ?? 0.10;
+
+        const nhfDeduction = Number((grossSalary * settings.nhfRate).toFixed(2));
+        const nhisEmployeeDeduction = Number((grossSalary * settings.nhisEmployee).toFixed(2));
+        const nhisEmployerContribution = Number((grossSalary * settings.nhisEmployer).toFixed(2));
+        const paye = Number((await taxUtil.computePAYE(grossSalary, nhfDeduction, nhisEmployeeDeduction, employee.companyId._id)).toFixed(2));
+
+        const totalDeductions = nhfDeduction + nhisEmployeeDeduction + paye + Number(pensionDeduction) + Number(otherDeductions);
+        const netPay = Number((grossSalary - totalDeductions).toFixed(2));
+
+        const payroll = new Payroll({
+          employeeId: employee._id,
           companyId: employee.companyId._id,
-          mode: "STANDARD_PAYE",
-          customPercent: 0,
-          nhfRate: 0.025,
-          nhisEmployee: 0.05,
-          nhisEmployer: 0.10 // ✅ Correct 10% default
+          month, year,
+          basicSalary: Number(basicSalary),
+          housingAllowance: Number(housingAllowance),
+          medicalAllowance: Number(medicalAllowance),
+          transportationAllowance: Number(transportationAllowance),
+          leaveAllowance: Number(leaveAllowance),
+          taxDeduction: paye,
+          pensionDeduction: Number(pensionDeduction),
+          nhfDeduction,
+          nhisEmployeeDeduction,
+          nhisEmployerContribution,
+          otherDeductions: Number(otherDeductions),
+          grossSalary,
+          netPay
         });
+
+        await payroll.save();
+
+        await TaxHistory.findOneAndUpdate(
+          { employeeId: employee._id, month, year },
+          {
+            payrollId: payroll._id,
+            employeeId: employee._id,
+            month,
+            year,
+            grossSalary,
+            paye,
+            nhfDeduction,
+            nhisEmployeeDeduction,
+            nhisEmployerContribution,
+            pensionDeduction: Number(pensionDeduction),
+            otherDeductions: Number(otherDeductions),
+            netPay
+          },
+          { upsert: true }
+        );
+
+        const period = `${year}-${month.toString().padStart(2, "0")}`;
+
+        await CompanyTaxLedger.create({
+          companyId: employee.companyId._id,
+          taxType: "PAYE",
+          period,
+          basisAmount: grossSalary,
+          rate: grossSalary > 0 ? paye / grossSalary : 0,
+          taxAmount: paye,
+          source: "Payroll",
+          sourceRefs: [payroll._id],
+          computedBy: req.user._id
+        });
+
+        await CompanyTaxLedger.create({
+          companyId: employee.companyId._id,
+          taxType: "NHF",
+          period,
+          basisAmount: grossSalary,
+          rate: settings.nhfRate,
+          taxAmount: nhfDeduction,
+          source: "Payroll",
+          sourceRefs: [payroll._id],
+          computedBy: req.user._id
+        });
+
+        await CompanyTaxLedger.create({
+          companyId: employee.companyId._id,
+          taxType: "NHIS",
+          period,
+          basisAmount: grossSalary,
+          rate: settings.nhisEmployee,
+          taxAmount: nhisEmployeeDeduction,
+          source: "Payroll",
+          sourceRefs: [payroll._id],
+          computedBy: req.user._id
+        });
+
+        await CompanyTaxLedger.create({
+          companyId: employee.companyId._id,
+          taxType: "NHIS_EMPLOYER",
+          period,
+          basisAmount: grossSalary,
+          rate: settings.nhisEmployer,
+          taxAmount: nhisEmployerContribution,
+          source: "Payroll",
+          sourceRefs: [payroll._id],
+          computedBy: req.user._id
+        });
+
+        results.push(payroll);
       }
 
-      // Ensure rates exist
-      settings.nhfRate = settings.nhfRate ?? 0.025;
-      settings.nhisEmployee = settings.nhisEmployee ?? 0.05;
-      settings.nhisEmployer = settings.nhisEmployer ?? 0.10;
-
-      const nhfDeduction = Number((grossSalary * settings.nhfRate).toFixed(2));
-      const nhisEmployeeDeduction = Number((grossSalary * settings.nhisEmployee).toFixed(2));
-      const nhisEmployerContribution = Number((grossSalary * settings.nhisEmployer).toFixed(2));
-      const paye = Number((await taxUtil.computePAYE(grossSalary, nhfDeduction, nhisEmployeeDeduction, employee.companyId._id)).toFixed(2));
-
-      const totalDeductions = nhfDeduction + nhisEmployeeDeduction + paye + Number(pensionDeduction) + Number(otherDeductions);
-      const netPay = Number((grossSalary - totalDeductions).toFixed(2));
-
-      const payroll = new Payroll({
-        employeeId: employee._id,
-        companyId: employee.companyId._id,
-        month, year,
-        basicSalary: Number(basicSalary),
-        housingAllowance: Number(housingAllowance),
-        medicalAllowance: Number(medicalAllowance),
-        transportationAllowance: Number(transportationAllowance),
-        leaveAllowance: Number(leaveAllowance),
-        taxDeduction: paye,
-        pensionDeduction: Number(pensionDeduction),
-        nhfDeduction,
-        nhisEmployeeDeduction,
-        nhisEmployerContribution,
-        otherDeductions: Number(otherDeductions),
-        grossSalary,
-        netPay
-      });
-
-      await payroll.save();
-
-      await TaxHistory.findOneAndUpdate(
-        { employeeId: employee._id, month, year },
-        { payrollId: payroll._id, employeeId: employee._id, month, year, grossSalary, paye, nhfDeduction, nhisEmployeeDeduction, nhisEmployerContribution, pensionDeduction: Number(pensionDeduction), otherDeductions: Number(otherDeductions), netPay },
-        { upsert: true }
-      );
-
-      const period = `${year}-${month.toString().padStart(2, "0")}`;
-
-      // Record PAYE
-      await CompanyTaxLedger.create({
-        companyId: employee.companyId._id,
-        taxType: "PAYE",
-        period,
-        basisAmount: grossSalary,
-        rate: grossSalary > 0 ? paye / grossSalary : 0,
-        taxAmount: paye,
-        source: "Payroll",
-        sourceRefs: [payroll._id],
-        computedBy: req.user._id
-      });
-
-      // Record NHF
-      await CompanyTaxLedger.create({
-        companyId: employee.companyId._id,
-        taxType: "NHF",
-        period,
-        basisAmount: grossSalary,
-        rate: settings.nhfRate,
-        taxAmount: nhfDeduction,
-        source: "Payroll",
-        sourceRefs: [payroll._id],
-        computedBy: req.user._id
-      });
-
-      // Record NHIS emplyee
-      await CompanyTaxLedger.create({
-        companyId: employee.companyId._id,
-        taxType: "NHIS",
-        period,
-        basisAmount: grossSalary,
-        rate: settings.nhisEmployee,
-        taxAmount: nhisEmployeeDeduction,
-        source: "Payroll",
-        sourceRefs: [payroll._id],
-        computedBy: req.user._id
-      });
-
-
-      // Record NHIS Employer Contribution (NEW)
-await CompanyTaxLedger.create({
-  companyId: employee.companyId._id,
-  taxType: "NHIS_EMPLOYER",
-  period,
-  basisAmount: grossSalary,
-  rate: settings.nhisEmployer,
-  taxAmount: nhisEmployerContribution,
-  source: "Payroll",
-  sourceRefs: [payroll._id],
-  computedBy: req.user._id
-});
-
-      results.push(payroll);
+      res.status(201).json({ message: "Payroll processed successfully", count: results.length, results });
+    } catch (err) {
+      console.error("Payroll error:", err);
+      res.status(500).json({ message: "Server error", error: err.message });
     }
-
-    res.status(201).json({ message: "Payroll processed successfully", count: results.length, results });
-  } catch (err) {
-    console.error("Payroll error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
   }
-});
+);
 
 /** 🔹 BULK PAYROLL GENERATION */
 router.post("/send-bulk", auth, isAdmin, async (req, res) => {

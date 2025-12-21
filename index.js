@@ -1,16 +1,17 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const prerender = require("prerender-node");
 const helmet = require("helmet");
-require("dotenv").config();
+const Sentry = require("@sentry/node");
+const Tracing = require("@sentry/tracing");
 
 // Routes
 const register = require("./routes/register");
 const login = require("./routes/login");
 const safeFetchRoutes = require("./routes/safeFetch");
 const sosRoutes = require("./routes/sosRoutes");
-// const stripe = require("./routes/stripe");
 const productsRoute = require("./routes/products");
 const users = require("./routes/users");
 const orders = require("./routes/orders");
@@ -38,6 +39,16 @@ const { apiKeyMiddleware, createRateLimiter } = require("./middleware/security")
 const app = express();
 
 /* ------------------------------
+   SENTRY MONITORING & ALERTING
+------------------------------ */
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  tracesSampleRate: 1.0,
+});
+app.use(Sentry.Handlers.requestHandler());
+app.use(Sentry.Handlers.tracingHandler());
+
+/* ------------------------------
    PRERENDER
 ------------------------------ */
 prerender.set("prerenderToken", process.env.PRERENDER_TOKEN);
@@ -48,7 +59,7 @@ app.use(prerender);
 ------------------------------ */
 app.use(
   helmet({
-    contentSecurityPolicy: false, // Disable strict CSP for dev/prerender
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
   })
 );
@@ -80,16 +91,16 @@ app.use(
    RATE LIMITER
 ------------------------------ */
 const defaultLimiter = createRateLimiter({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 100,
   message: "Too many requests from this IP, please try later",
 });
 
 /* ------------------------------
-   JSON & FORM PARSING
+   JSON & FORM PARSING WITH LIMITS
 ------------------------------ */
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "10kb" }));
+app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
 /* ------------------------------
    LOG REQUESTS
@@ -133,8 +144,8 @@ app.use("/api/company", companyRoutes);
 app.use("/api/tax-ledger", taxLedgerRoutes);
 app.use("/api/reports", reportsRoute);
 app.use("/api/users", users);
-app.use("/api/expenses", expensesRoute); 
-app.use("/api/safe-fetch", safeFetchRoutes); // ✅ SSRF-safe fetch
+app.use("/api/expenses", expensesRoute);
+app.use("/api/safe-fetch", safeFetchRoutes);
 
 /* ------------------------------
    BASE ROUTES
@@ -157,9 +168,11 @@ mongoose
 /* ------------------------------
    ERROR HANDLING
 ------------------------------ */
+app.use(Sentry.Handlers.errorHandler()); // Sentry captures errors
+
 app.use((err, req, res, next) => {
-  console.error(err); // log full error internally
-  res.status(500).json({ message: "Internal Server Error" }); // hide stack trace
+  console.error(err);
+  res.status(500).json({ message: "Internal Server Error" });
 });
 
 /* ------------------------------
@@ -170,5 +183,4 @@ app.listen(port, () => {
   console.log(`Server running on port ${port}...`);
 });
 
-// Export for Vercel
 module.exports = app;

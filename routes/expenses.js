@@ -5,6 +5,7 @@ const multer = require("multer");
 const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
+const Joi = require("joi");
 const  Expense  = require("../models/Expense");
 const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 const { User } = require("../models/user");
@@ -60,33 +61,48 @@ async function uploadToAppwrite(file) {
 }
 
 // ---------- CREATE EXPENSE ----------
-// ---------- CREATE EXPENSE ----------
+// ---------------------------
+// CREATE EXPENSE
+// ---------------------------
 router.post("/", auth, upload.array("receipts"), async (req, res) => {
   try {
+    // ---------- Validation ----------
+    const schema = Joi.object({
+      dateOfExpense: Joi.date().required(),
+      expenseCategory: Joi.string().max(100).required(),
+      description: Joi.string().max(500).allow(""),
+      paidTo: Joi.string().max(200).allow(""),
+      amount: Joi.number().min(0).required(),
+      type: Joi.string().valid("Income", "Expense").default("Expense"),
+      paymentMethod: Joi.string().max(50).allow(""),
+      department: Joi.string().max(100).allow(""),
+      approvedBy: Joi.string().max(200).allow(""),
+      status: Joi.string().valid("Pending", "Approved", "Declined"),
+      taxFlags: Joi.object({
+        vatClaimable: Joi.boolean().default(false),
+        whtApplicable: Joi.boolean().default(false),
+        citAllowable: Joi.boolean().default(true),
+      }).default({}),
+      whtRate: Joi.number().min(0).max(1).default(0),
+    });
+
+    const { error, value } = schema.validate(req.body, { stripUnknown: true });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
     const {
       dateOfExpense,
       expenseCategory,
       description,
       paidTo,
       amount,
-      type = "Expense",
+      type,
       paymentMethod,
       department,
       approvedBy,
       status,
-    } = req.body;
-
-    // ✅ REQUIRED FIELDS CHECK
-    if (!dateOfExpense || !expenseCategory || !amount) {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    // ✅ FIX 1: ENFORCE TRANSACTION TYPE
-    if (!["Income", "Expense"].includes(type)) {
-      return res.status(400).json({ message: "Invalid transaction type" });
-    }
-
-    console.log("Saving transaction type:", type);
+      taxFlags,
+      whtRate,
+    } = value;
 
     // ---------- Upload receipts ----------
     const receiptUploads = req.files?.length
@@ -94,18 +110,9 @@ router.post("/", auth, upload.array("receipts"), async (req, res) => {
       : [];
 
     // ---------- Ledger balance ----------
-    const lastRecord = await Expense.findOne({
-      companyId: req.user.companyId,
-    }).sort({ createdAt: -1 });
-
-    const previousBalance = lastRecord
-      ? lastRecord.balanceAfterTransaction
-      : 0;
-
-    const newBalance =
-      type === "Expense"
-        ? previousBalance - Number(amount)
-        : previousBalance + Number(amount);
+    const lastRecord = await Expense.findOne({ companyId: req.user.companyId }).sort({ createdAt: -1 });
+    const previousBalance = lastRecord ? lastRecord.balanceAfterTransaction : 0;
+    const newBalance = type === "Expense" ? previousBalance - amount : previousBalance + amount;
 
     // ---------- Create Expense ----------
     const expense = new Expense({
@@ -114,7 +121,7 @@ router.post("/", auth, upload.array("receipts"), async (req, res) => {
       expenseCategory,
       description,
       paidTo,
-      amount: Number(amount),
+      amount,
       type,
       balanceAfterTransaction: newBalance,
       paymentMethod,
@@ -123,16 +130,13 @@ router.post("/", auth, upload.array("receipts"), async (req, res) => {
       approvedBy: req.user.isAdmin ? approvedBy || "" : "",
       status: req.user.isAdmin ? status || "Pending" : "Pending",
       receiptUploads,
-      taxFlags: {
-        vatClaimable: req.body.taxFlags?.vatClaimable || false,
-        whtApplicable: req.body.taxFlags?.whtApplicable || false,
-        citAllowable: req.body.taxFlags?.citAllowable ?? true,
-      },
-      whtRate: req.body.whtRate || 0,
+      taxFlags,
+      whtRate,
     });
 
     const saved = await expense.save();
     res.status(201).json(saved);
+
   } catch (error) {
     console.error("❌ [CREATE EXPENSE] Error:", error.message);
     res.status(500).json({ message: error.message });
@@ -169,22 +173,51 @@ router.get("/:id", auth, async (req, res) => {
 });
 
 // ---------- UPDATE EXPENSE ----------
+// ---------------------------
+// UPDATE EXPENSE
+// ---------------------------
 router.put("/:id", auth, upload.array("receipts"), async (req, res) => {
   try {
     const existing = await Expense.findById(req.params.id);
     if (!existing) return res.status(404).json({ message: "Expense not found" });
 
-    if (existing.companyId.toString() !== req.user.companyId.toString()) return res.status(403).json({ message: "Access denied" });
+    if (existing.companyId.toString() !== req.user.companyId.toString())
+      return res.status(403).json({ message: "Access denied" });
 
+    // ---------- Validation ----------
+    const schema = Joi.object({
+      dateOfExpense: Joi.date(),
+      expenseCategory: Joi.string().max(100),
+      description: Joi.string().max(500).allow(""),
+      paidTo: Joi.string().max(200).allow(""),
+      amount: Joi.number().min(0),
+      type: Joi.string().valid("Income", "Expense"),
+      paymentMethod: Joi.string().max(50).allow(""),
+      department: Joi.string().max(100).allow(""),
+      approvedBy: Joi.string().max(200).allow(""),
+      status: Joi.string().valid("Pending", "Approved", "Declined"),
+      taxFlags: Joi.object({
+        vatClaimable: Joi.boolean(),
+        whtApplicable: Joi.boolean(),
+        citAllowable: Joi.boolean(),
+      }),
+      whtRate: Joi.number().min(0).max(1),
+    });
+
+    const { error, value } = schema.validate(req.body, { stripUnknown: true });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    // ---------- Handle new uploads ----------
     let receiptUploads = existing.receiptUploads;
     if (req.files?.length) {
       const newUploads = await Promise.all(req.files.map(uploadToAppwrite));
       receiptUploads = [...receiptUploads, ...newUploads];
     }
 
-    Object.assign(existing, { ...req.body, receiptUploads });
+    Object.assign(existing, { ...value, receiptUploads });
     const updated = await existing.save();
     res.status(200).json(updated);
+
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -192,12 +225,20 @@ router.put("/:id", auth, upload.array("receipts"), async (req, res) => {
 
 
 // ---------- UPDATE EXPENSE STATUS ----------
+// ---------------------------
+// UPDATE EXPENSE STATUS
+// ---------------------------
 router.patch("/:id/status", auth, async (req, res) => {
   try {
-    const { status } = req.body;
+    // ---------- Validation ----------
+    const schema = Joi.object({
+      status: Joi.string().valid("Pending", "Approved", "Declined").required(),
+    });
 
-    if (!["Pending", "Approved", "Declined"].includes(status))
-      return res.status(400).json({ message: "Invalid status value" });
+    const { error, value } = schema.validate(req.body, { stripUnknown: true });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    const { status } = value;
 
     const expense = await Expense.findById(req.params.id);
     if (!expense) return res.status(404).json({ message: "Expense not found" });
@@ -205,33 +246,24 @@ router.patch("/:id/status", auth, async (req, res) => {
     if (expense.companyId.toString() !== req.user.companyId.toString())
       return res.status(403).json({ message: "Access denied" });
 
-    // Only SuperStakeholder can approve
     if (status === "Approved" && !req.user.isSuperStakeholder)
       return res.status(403).json({ message: "Only SuperStakeholder can approve expenses" });
 
-    // Only Admin/SuperStakeholder can decline
     if (status === "Declined" && !req.user.isAdmin && !req.user.isSuperStakeholder)
       return res.status(403).json({ message: "Not authorized to decline expenses" });
 
     expense.status = status;
     if (["Approved", "Declined"].includes(status)) expense.approvedBy = req.user.name;
 
-    // ---------- Compute VAT/WHT and update ledger ----------
+    // Compute VAT/WHT and update ledger if approved
     if (status === "Approved") {
-      // Ensure taxFlags exist
       const { taxFlags = {} } = expense;
-
-      // Compute VAT & WHT amounts
       if (taxFlags.vatClaimable) expense.vatAmount = +(expense.amount * 0.075).toFixed(2);
       if (taxFlags.whtApplicable) expense.whtAmount = +(expense.amount * (expense.whtRate || 0)).toFixed(2);
 
-      // Save the computed amounts first
       await expense.save();
-
-      // Update company tax ledger
       await updateCompanyTaxFromExpenses(expense);
     } else {
-      // For Pending or Declined, just save the status change
       await expense.save();
     }
 
@@ -242,7 +274,6 @@ router.patch("/:id/status", auth, async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
-
 
 
 

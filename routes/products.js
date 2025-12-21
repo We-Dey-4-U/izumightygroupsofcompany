@@ -4,6 +4,7 @@ const { isAdmin } = require("../middleware/auth");
 const router = require("express").Router();
 const multer = require("multer");
 const axios = require("axios");
+const Joi = require("joi");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 
@@ -36,6 +37,14 @@ const { v4: uuidv4 } = require("uuid");
 
 // ---- Multer Config (Memory Storage) ----
 const upload = multer({ storage: multer.memoryStorage() });
+
+// ---------- Helpers ----------
+const objectIdSchema = Joi.string().custom((value, helpers) => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    return helpers.error("any.invalid");
+  }
+  return value;
+}, "ObjectId Validation");
 
 // ---- Helper: Upload to Appwrite via REST API using server-side API Key ----
 async function uploadToAppwrite(file) {
@@ -86,86 +95,97 @@ async function uploadToAppwrite(file) {
 // ---- CREATE PRODUCT ----
 // ---- CREATE PRODUCT ----
 // routes/products.js (create route)
+// ===============================
+// CREATE PRODUCT
+// ===============================
 router.post("/", isAdmin, upload.array("images"), async (req, res) => {
   try {
-    console.log("📦 [CREATE PRODUCT] Raw req.body:", req.body);
-    console.log("📦 [CREATE PRODUCT] Number of files:", (req.files || []).length);
+    const schema = Joi.object({
+      name: Joi.string().min(1).max(200).required(),
+      category: Joi.string().required(),
+      desc: Joi.string().min(1).max(3000).required(),
+      price: Joi.number().min(0).required(),
+      originalPrice: Joi.number().min(0).optional(),
+      discountPercent: Joi.number().min(0).max(100).optional(),
+      rating: Joi.number().min(1).max(5).optional(),
+      features: Joi.any(),
+    });
 
-    if (!req.files || req.files.length === 0) {
+    const { error, value } = schema.validate(req.body, { stripUnknown: false });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    if (!req.files?.length) {
       return res.status(400).json({ message: "No images uploaded" });
     }
 
-    // Features normalization
+    // ---- Features normalization (unchanged) ----
     let parsedFeatures = [];
-    if (req.body.features) {
-      if (Array.isArray(req.body.features)) {
-        parsedFeatures = req.body.features.map(String).map(f => f.trim()).filter(Boolean);
+    if (value.features) {
+      if (Array.isArray(value.features)) {
+        parsedFeatures = value.features.map(String).map(f => f.trim()).filter(Boolean);
       } else {
         try {
-          const maybe = JSON.parse(req.body.features);
-          if (Array.isArray(maybe)) parsedFeatures = maybe.map(String).map(f => f.trim()).filter(Boolean);
-          else parsedFeatures = String(req.body.features).split(",").map(f => f.trim()).filter(Boolean);
+          const maybe = JSON.parse(value.features);
+          parsedFeatures = Array.isArray(maybe)
+            ? maybe.map(String).map(f => f.trim()).filter(Boolean)
+            : String(value.features).split(",").map(f => f.trim()).filter(Boolean);
         } catch {
-          parsedFeatures = String(req.body.features).split(",").map(f => f.trim()).filter(Boolean);
+          parsedFeatures = String(value.features).split(",").map(f => f.trim()).filter(Boolean);
         }
       }
     }
 
-    // Numeric parsing
-    const parsedPrice = req.body.price !== undefined && req.body.price !== "" ? Number(req.body.price) : 0;
-    const parsedOriginal = req.body.originalPrice !== undefined && req.body.originalPrice !== "" ? Number(req.body.originalPrice) : 0;
-    const parsedRating = req.body.rating !== undefined && req.body.rating !== "" ? Number(req.body.rating) : 0;
-    const parsedDiscount = req.body.discountPercent !== undefined && req.body.discountPercent !== "" ? Number(req.body.discountPercent) : 0;
+    const images = await Promise.all(req.files.map(uploadToAppwrite));
 
-    // Upload images to Appwrite
-    const images = await Promise.all(req.files.map(file => uploadToAppwrite(file)));
-
-    // Save product with company isolation
     const product = new Product({
       companyId: req.user.companyId,
-      createdBy: req.user._id, // 🔥 Track uploader
-      name: req.body.name,
-      category: req.body.category,
-      desc: req.body.desc,
-      price: parsedPrice,
-      originalPrice: parsedOriginal,
-      rating: parsedRating,
-      discountPercent: parsedDiscount,
+      createdBy: req.user._id,
+      name: value.name,
+      category: value.category,
+      desc: value.desc,
+      price: Number(value.price),
+      originalPrice: Number(value.originalPrice || 0),
+      rating: Number(value.rating || 0),
+      discountPercent: Number(value.discountPercent || 0),
       features: parsedFeatures,
       images,
     });
 
-    const savedProduct = await product.save();
-    console.log("✅ Product saved:", savedProduct._id);
+    const saved = await product.save();
+    res.status(201).json(saved);
 
-    res.status(200).json(savedProduct);
   } catch (error) {
-    console.error("❌ [CREATE PRODUCT] Error:", error);
-    res.status(500).json({ message: error.message || String(error) });
+    console.error("❌ [CREATE PRODUCT]", error.message);
+    res.status(500).json({ message: error.message });
   }
 });
 
 
 
 
+
 //Add a simple route to let users add/remove product to wishlist:
-// Add or remove from wishlist
+
+// ===============================
+// WISHLIST TOGGLE
+// ===============================
 router.post("/:id/wishlist", async (req, res) => {
-  const userId = req.body.userId; // send userId from frontend
-  if (!userId) return res.status(400).json({ message: "User ID required" });
+  const idCheck = objectIdSchema.validate(req.params.id);
+  if (idCheck.error) return res.status(400).json({ message: "Invalid product ID" });
+
+  const schema = Joi.object({
+    userId: objectIdSchema.required(),
+  });
+
+  const { error, value } = schema.validate(req.body);
+  if (error) return res.status(400).json({ message: error.details[0].message });
 
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: "Product not found" });
 
-    const index = product.wishlistedBy.indexOf(userId);
-    if (index > -1) {
-      // already in wishlist -> remove
-      product.wishlistedBy.splice(index, 1);
-    } else {
-      // add to wishlist
-      product.wishlistedBy.push(userId);
-    }
+    const index = product.wishlistedBy.indexOf(value.userId);
+    index > -1 ? product.wishlistedBy.splice(index, 1) : product.wishlistedBy.push(value.userId);
 
     await product.save();
     res.status(200).json({ wishlistedBy: product.wishlistedBy });
@@ -174,48 +194,48 @@ router.post("/:id/wishlist", async (req, res) => {
   }
 });
 
+
+
+
 // ---- UPDATE PRODUCT ----
+// ===============================
+// UPDATE PRODUCT
+// ===============================
 router.put("/:id", isAdmin, upload.array("images"), async (req, res) => {
+  const idCheck = objectIdSchema.validate(req.params.id);
+  if (idCheck.error) return res.status(400).json({ message: "Invalid product ID" });
+
   try {
-    const updateData = { ...req.body };
-
-    // Fetch only products belonging to admin's company
     const product = await Product.findOne({ _id: req.params.id, companyId: req.user.companyId });
-    if (!product) return res.status(403).json({ message: "Not authorized to update this product" });
+    if (!product) return res.status(403).json({ message: "Not authorized" });
 
-    // Handle image uploads
-    if (req.files && req.files.length > 0) {
-      const images = await Promise.all(req.files.map((file) => uploadToAppwrite(file)));
-      updateData.images = images;
+    const schema = Joi.object({
+      name: Joi.string().min(1).max(200),
+      category: Joi.string(),
+      desc: Joi.string().min(1).max(3000),
+      price: Joi.number().min(0),
+      originalPrice: Joi.number().min(0),
+      discountPercent: Joi.number().min(0).max(100),
+      rating: Joi.number().min(1).max(5),
+      features: Joi.any(),
+    });
+
+    const { error, value } = schema.validate(req.body, { stripUnknown: false });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    if (req.files?.length) {
+      product.images = await Promise.all(req.files.map(uploadToAppwrite));
     }
 
-    // Features normalization
-    if (updateData.features !== undefined && updateData.features !== null && updateData.features !== "") {
-      if (!Array.isArray(updateData.features)) {
-        try {
-          const maybe = JSON.parse(updateData.features);
-          if (Array.isArray(maybe)) updateData.features = maybe.map(String).map(f => f.trim()).filter(Boolean);
-          else updateData.features = String(updateData.features).split(",").map(f => f.trim()).filter(Boolean);
-        } catch {
-          updateData.features = String(updateData.features).split(",").map(f => f.trim()).filter(Boolean);
-        }
-      } else updateData.features = updateData.features.map(String).map(f => f.trim()).filter(Boolean);
-    }
+    Object.assign(product, value);
+    const updated = await product.save();
+    res.status(200).json(updated);
 
-    // Numeric conversions
-    if (updateData.price !== undefined && updateData.price !== "") updateData.price = Number(updateData.price);
-    if (updateData.originalPrice !== undefined && updateData.originalPrice !== "") updateData.originalPrice = Number(updateData.originalPrice);
-    if (updateData.rating !== undefined && updateData.rating !== "") updateData.rating = Number(updateData.rating);
-    if (updateData.discountPercent !== undefined && updateData.discountPercent !== "") updateData.discountPercent = Number(updateData.discountPercent);
-
-    Object.assign(product, updateData);
-    const updatedProduct = await product.save();
-
-    res.status(200).json(updatedProduct);
   } catch (error) {
-    res.status(500).json({ message: error.message || String(error) });
+    res.status(500).json({ message: error.message });
   }
 });
+
 
 
 

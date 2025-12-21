@@ -7,17 +7,14 @@ const generateAuthToken = require("../utils/generateAuthToken");
 const router = express.Router();
 
 // ---------------------------
-// USER REGISTRATION
-// ---------------------------
-// ---------------------------
-// USER REGISTRATION
+// USER REGISTRATION ROUTE
 // ---------------------------
 router.post("/", async (req, res) => {
   try {
     console.log("📌 [User Registration] Request body:", req.body);
 
-    const PASSWORD_REGEX =
-      /^(?=.*[A-Z])(?=.*[@#$%^&*])[A-Za-z\d@#$%^&*]{8,}$/;
+    // Password policy: at least 8 chars, 1 uppercase, 1 special character
+    const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*[@#$%^&*])[A-Za-z\d@#$%^&*]{8,}$/;
 
     // ✅ Validation schema
     const schema = Joi.object({
@@ -36,16 +33,14 @@ router.post("/", async (req, res) => {
     const { error } = schema.validate(req.body);
     if (error) {
       console.warn("⚠ Validation failed:", error.details[0].message);
-      return res.status(400).send(error.details[0].message);
+      return res.status(400).json({ message: error.details[0].message });
     }
 
     const { name, email, password, companyCode } = req.body;
 
     // Check existing user
     const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).send("User already exists.");
-    }
+    if (existingUser) return res.status(400).json({ message: "User already exists." });
 
     let companyDoc = null;
     let companyName = null;
@@ -53,11 +48,11 @@ router.post("/", async (req, res) => {
 
     if (companyCode) {
       companyDoc = await Company.findOne({ code: Number(companyCode) });
-      if (!companyDoc) {
+      if (!companyDoc)
         return res
           .status(400)
-          .send("Company not found. Please contact your administrator.");
-      }
+          .json({ message: "Company not found. Please contact your administrator." });
+
       companyName = companyDoc.name;
       companyId = companyDoc._id;
     }
@@ -66,7 +61,7 @@ router.post("/", async (req, res) => {
     const newUser = new User({
       name,
       email,
-      password, // hashed below
+      password, // will hash below
       company: companyName,
       companyId,
     });

@@ -1,12 +1,25 @@
 // routes/orders.js
+require("dotenv").config();
 const router = require("express").Router();
 const { auth, isUser, isAdmin } = require("../middleware/auth");
 const Order = require("../models/order");
-const { Product } = require("../models/product"); // ✅ REQUIRED
+const { Product } = require("../models/product");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const moment = require("moment");
+const Joi = require("joi");
+const mongoose = require("mongoose");
+
+// ===============================
+// Helpers
+// ===============================
+const objectIdSchema = Joi.string().custom((value, helpers) => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    return helpers.error("any.invalid");
+  }
+  return value;
+}, "ObjectId Validation");
 
 // ===============================
 // Ensure uploads/receipts folder exists
@@ -30,11 +43,20 @@ const upload = multer({ storage });
 // =======================================================
 router.post("/bank-transfer", auth, upload.single("receipt"), async (req, res) => {
   try {
-    const { userId, products, subtotal, total, shipping, paymentMethod } = req.body;
+    // ---------- Validation ----------
+    const schema = Joi.object({
+      userId: objectIdSchema.required(),
+      products: Joi.string().required(), // JSON string (multipart)
+      subtotal: Joi.number().min(0).required(),
+      total: Joi.number().min(0).required(),
+      shipping: Joi.string().required(), // JSON string
+      paymentMethod: Joi.string().default("bankTransfer"),
+    });
 
-    if (!products) {
-      return res.status(400).json({ message: "Products required" });
-    }
+    const { error, value } = schema.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    const { userId, products, subtotal, total, shipping, paymentMethod } = value;
 
     const parsedProducts = JSON.parse(products);
 
@@ -58,7 +80,7 @@ router.post("/bank-transfer", auth, upload.single("receipt"), async (req, res) =
       });
     }
 
-    // ✅ Create order with COMPANY OWNERSHIP
+    // ✅ Create order (UNCHANGED LOGIC)
     const order = new Order({
       userId,
       company: companyId,
@@ -66,13 +88,14 @@ router.post("/bank-transfer", auth, upload.single("receipt"), async (req, res) =
       subtotal: Number(subtotal),
       total: Number(total),
       shipping: JSON.parse(shipping),
-      paymentMethod: paymentMethod || "bankTransfer",
+      paymentMethod,
       payment_status: "awaiting_payment",
       receipt: req.file ? req.file.path : "",
     });
 
     const savedOrder = await order.save();
     res.status(201).json(savedOrder);
+
   } catch (err) {
     console.error("❌ Bank transfer order error:", err);
     res.status(500).json({ message: err.message });
@@ -84,18 +107,34 @@ router.post("/bank-transfer", auth, upload.single("receipt"), async (req, res) =
 // =======================================================
 router.post("/", auth, async (req, res) => {
   try {
+    const schema = Joi.object({
+      userId: objectIdSchema.required(),
+      products: Joi.array().min(1).required(),
+      subtotal: Joi.number().min(0).required(),
+      total: Joi.number().min(0).required(),
+      shipping: Joi.object().required(),
+      paymentMethod: Joi.string().required(),
+    });
+
+    const { error } = schema.validate(req.body, { stripUnknown: false });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
     const newOrder = new Order(req.body);
     const savedOrder = await newOrder.save();
     res.status(200).json(savedOrder);
+
   } catch (err) {
     res.status(500).json(err);
   }
 });
 
 // =======================================================
-// UPDATE ORDER — COMPANY ADMIN ONLY (OWN ORDERS)
+// UPDATE ORDER — COMPANY ADMIN ONLY
 // =======================================================
 router.put("/:id", isAdmin, async (req, res) => {
+  const idCheck = objectIdSchema.validate(req.params.id);
+  if (idCheck.error) return res.status(400).json({ message: "Invalid order ID" });
+
   try {
     const order = await Order.findOne({
       _id: req.params.id,
@@ -106,7 +145,16 @@ router.put("/:id", isAdmin, async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    Object.assign(order, req.body);
+    const schema = Joi.object({
+      delivery_status: Joi.string(),
+      payment_status: Joi.string(),
+      trackingNumber: Joi.string(),
+    });
+
+    const { error, value } = schema.validate(req.body, { stripUnknown: false });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    Object.assign(order, value);
     const updatedOrder = await order.save();
 
     res.status(200).json(updatedOrder);
@@ -116,9 +164,12 @@ router.put("/:id", isAdmin, async (req, res) => {
 });
 
 // =======================================================
-// MARK PAYMENT AS PAID — COMPANY SAFE
+// MARK PAYMENT AS PAID
 // =======================================================
 router.put("/:id/payment", isAdmin, async (req, res) => {
+  const idCheck = objectIdSchema.validate(req.params.id);
+  if (idCheck.error) return res.status(400).json({ message: "Invalid order ID" });
+
   try {
     const order = await Order.findOne({
       _id: req.params.id,
@@ -126,22 +177,24 @@ router.put("/:id/payment", isAdmin, async (req, res) => {
     });
 
     if (!order) return res.status(403).json({ message: "Not authorized" });
-
-    if (order.payment_status === "paid") {
+    if (order.payment_status === "paid")
       return res.status(400).json({ message: "Already paid" });
-    }
 
     order.payment_status = "paid";
     res.status(200).json(await order.save());
+
   } catch (err) {
     res.status(500).json(err);
   }
 });
 
 // =======================================================
-// MARK DELIVERY AS DELIVERED — COMPANY SAFE
+// MARK DELIVERY AS DELIVERED
 // =======================================================
 router.put("/:id/delivery", isAdmin, async (req, res) => {
+  const idCheck = objectIdSchema.validate(req.params.id);
+  if (idCheck.error) return res.status(400).json({ message: "Invalid order ID" });
+
   try {
     const order = await Order.findOne({
       _id: req.params.id,
@@ -149,13 +202,12 @@ router.put("/:id/delivery", isAdmin, async (req, res) => {
     });
 
     if (!order) return res.status(403).json({ message: "Not authorized" });
-
-    if (order.delivery_status === "delivered") {
+    if (order.delivery_status === "delivered")
       return res.status(400).json({ message: "Already delivered" });
-    }
 
     order.delivery_status = "delivered";
     res.status(200).json(await order.save());
+
   } catch (err) {
     res.status(500).json(err);
   }
@@ -165,6 +217,9 @@ router.put("/:id/delivery", isAdmin, async (req, res) => {
 // DELETE ORDER — ONLY OWN & DELIVERED
 // =======================================================
 router.delete("/:id", isAdmin, async (req, res) => {
+  const idCheck = objectIdSchema.validate(req.params.id);
+  if (idCheck.error) return res.status(400).json({ message: "Invalid order ID" });
+
   try {
     const order = await Order.findOne({
       _id: req.params.id,
@@ -172,22 +227,24 @@ router.delete("/:id", isAdmin, async (req, res) => {
     });
 
     if (!order) return res.status(403).json({ message: "Not authorized" });
-
-    if (order.delivery_status !== "delivered") {
+    if (order.delivery_status !== "delivered")
       return res.status(400).json({ message: "Only delivered orders can be deleted" });
-    }
 
     await Order.findByIdAndDelete(order._id);
     res.status(200).json({ message: "Order deleted" });
+
   } catch (err) {
     res.status(500).json(err);
   }
 });
 
 // =======================================================
-// GET USER ORDERS (CUSTOMER)
+// GET USER ORDERS
 // =======================================================
 router.get("/find/:userId", isUser, async (req, res) => {
+  const idCheck = objectIdSchema.validate(req.params.userId);
+  if (idCheck.error) return res.status(400).json({ message: "Invalid user ID" });
+
   try {
     const orders = await Order.find({ userId: req.params.userId });
     res.status(200).json(orders);
@@ -197,7 +254,7 @@ router.get("/find/:userId", isUser, async (req, res) => {
 });
 
 // =======================================================
-// GET COMPANY ORDERS (ADMIN DASHBOARD)
+// GET COMPANY ORDERS
 // =======================================================
 router.get("/", isAdmin, async (req, res) => {
   try {
