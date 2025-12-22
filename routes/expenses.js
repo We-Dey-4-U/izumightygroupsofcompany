@@ -6,16 +6,21 @@ const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 const Joi = require("joi");
-const  Expense  = require("../models/Expense");
+
+const Expense = require("../models/Expense");
 const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 const { User } = require("../models/user");
-//const { processExpenseTax } = require("../utils/processExpenseTax");
 const { updateCompanyTaxFromExpenses } = require("../utils/companyTaxUpdater");
 
 // ---------- Appwrite Setup Check ----------
 (async () => {
   console.log("🧠 Checking Appwrite config for Expenses...");
-  const { APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_BUCKET_ID, APPWRITE_API_KEY } = process.env;
+  const {
+    APPWRITE_ENDPOINT,
+    APPWRITE_PROJECT_ID,
+    APPWRITE_BUCKET_ID,
+    APPWRITE_API_KEY,
+  } = process.env;
 
   if (!APPWRITE_ENDPOINT || !APPWRITE_PROJECT_ID || !APPWRITE_BUCKET_ID || !APPWRITE_API_KEY) {
     console.error("❌ Missing Appwrite env vars for Expense module!");
@@ -25,7 +30,12 @@ const { updateCompanyTaxFromExpenses } = require("../utils/companyTaxUpdater");
   try {
     const res = await axios.get(
       `${APPWRITE_ENDPOINT}/storage/buckets/${APPWRITE_BUCKET_ID}`,
-      { headers: { "X-Appwrite-Project": APPWRITE_PROJECT_ID, "X-Appwrite-Key": APPWRITE_API_KEY } }
+      {
+        headers: {
+          "X-Appwrite-Project": APPWRITE_PROJECT_ID,
+          "X-Appwrite-Key": APPWRITE_API_KEY,
+        },
+      }
     );
     console.log("✅ Appwrite bucket OK for Expenses:", res.data.name || APPWRITE_BUCKET_ID);
   } catch (err) {
@@ -40,6 +50,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 async function uploadToAppwrite(file) {
   const fileId = uuidv4();
   const formData = new FormData();
+
   formData.append("fileId", fileId);
   formData.append("file", file.buffer, {
     filename: file.originalname,
@@ -51,29 +62,47 @@ async function uploadToAppwrite(file) {
     const res = await axios.post(
       `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files`,
       formData,
-      { headers: { "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID, "X-Appwrite-Key": process.env.APPWRITE_API_KEY, ...formData.getHeaders() }, maxBodyLength: Infinity }
+      {
+        headers: {
+          "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+          "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
+          ...formData.getHeaders(),
+        },
+        maxBodyLength: Infinity,
+      }
     );
-    return { id: res.data.$id, url: `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${res.data.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}` };
+
+    return {
+      id: res.data.$id,
+      url: `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${res.data.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`,
+    };
   } catch (err) {
     console.error("❌ Appwrite upload failed:", err.response?.data || err.message);
     throw new Error("Appwrite upload failed");
   }
 }
 
-
+/* ======================================================
+   STATIC / AGGREGATE ROUTES (MUST COME FIRST)
+====================================================== */
 
 // ---------- CURRENT BALANCE ----------
 router.get("/balance", auth, async (req, res) => {
   try {
-    if (!req.user?.companyId) return res.status(400).json({ message: "Missing companyId" });
+    if (!req.user?.companyId)
+      return res.status(400).json({ message: "Missing companyId" });
 
     const result = await Expense.aggregate([
       { $match: { companyId: req.user.companyId, status: "Approved" } },
       {
         $group: {
           _id: null,
-          totalIncome: { $sum: { $cond: [{ $eq: ["$type", "Income"] }, "$amount", 0] } },
-          totalExpense: { $sum: { $cond: [{ $eq: ["$type", "Expense"] }, "$amount", 0] } },
+          totalIncome: {
+            $sum: { $cond: [{ $eq: ["$type", "Income"] }, "$amount", 0] },
+          },
+          totalExpense: {
+            $sum: { $cond: [{ $eq: ["$type", "Expense"] }, "$amount", 0] },
+          },
         },
       },
       {
@@ -86,11 +115,14 @@ router.get("/balance", auth, async (req, res) => {
       },
     ]);
 
-    const balanceData = result[0] || { balance: 0, totalIncome: 0, totalExpense: 0 };
-    res.status(200).json(balanceData);
+    res.status(200).json(result[0] || {
+      balance: 0,
+      totalIncome: 0,
+      totalExpense: 0,
+    });
   } catch (error) {
     console.error("❌ Current Balance FAILED", error);
-    res.status(500).json({ message: "Failed to fetch balance", error: error.message });
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -99,8 +131,13 @@ router.get("/summary/monthly", auth, async (req, res) => {
   try {
     const summary = await Expense.aggregate([
       { $match: { companyId: req.user.companyId } },
-      { $group: { _id: { $month: "$dateOfExpense" }, totalAmount: { $sum: "$amount" } } },
-      { $sort: { "_id": 1 } },
+      {
+        $group: {
+          _id: { $month: "$dateOfExpense" },
+          totalAmount: { $sum: "$amount" },
+        },
+      },
+      { $sort: { _id: 1 } },
     ]);
 
     const formatted = summary.map(item => ({
@@ -114,13 +151,13 @@ router.get("/summary/monthly", auth, async (req, res) => {
   }
 });
 
+/* ======================================================
+   CREATE + LIST ROUTES
+====================================================== */
+
 // ---------- CREATE EXPENSE ----------
-// ---------------------------
-// CREATE EXPENSE
-// ---------------------------
 router.post("/", auth, upload.array("receipts"), async (req, res) => {
   try {
-    // ---------- Validation ----------
     const schema = Joi.object({
       dateOfExpense: Joi.date().required(),
       expenseCategory: Joi.string().max(100).required(),
@@ -143,82 +180,62 @@ router.post("/", auth, upload.array("receipts"), async (req, res) => {
     const { error, value } = schema.validate(req.body, { stripUnknown: true });
     if (error) return res.status(400).json({ message: error.details[0].message });
 
-    const {
-      dateOfExpense,
-      expenseCategory,
-      description,
-      paidTo,
-      amount,
-      type,
-      paymentMethod,
-      department,
-      approvedBy,
-      status,
-      taxFlags,
-      whtRate,
-    } = value;
-
-    // ---------- Upload receipts ----------
     const receiptUploads = req.files?.length
       ? await Promise.all(req.files.map(uploadToAppwrite))
       : [];
 
-    // ---------- Ledger balance ----------
     const lastRecord = await Expense.findOne({ companyId: req.user.companyId }).sort({ createdAt: -1 });
     const previousBalance = lastRecord ? lastRecord.balanceAfterTransaction : 0;
-    const newBalance = type === "Expense" ? previousBalance - amount : previousBalance + amount;
+    const newBalance =
+      value.type === "Expense"
+        ? previousBalance - value.amount
+        : previousBalance + value.amount;
 
-    // ---------- Create Expense ----------
     const expense = new Expense({
+      ...value,
       companyId: req.user.companyId,
-      dateOfExpense,
-      expenseCategory,
-      description,
-      paidTo,
-      amount,
-      type,
-      balanceAfterTransaction: newBalance,
-      paymentMethod,
-      department,
       enteredByUser: req.user._id,
-      approvedBy: req.user.isAdmin ? approvedBy || "" : "",
-      status: req.user.isAdmin ? status || "Pending" : "Pending",
+      balanceAfterTransaction: newBalance,
+      approvedBy: req.user.isAdmin ? value.approvedBy || "" : "",
+      status: req.user.isAdmin ? value.status || "Pending" : "Pending",
       receiptUploads,
-      taxFlags,
-      whtRate,
     });
 
-    const saved = await expense.save();
-    res.status(201).json(saved);
-
+    res.status(201).json(await expense.save());
   } catch (error) {
-    console.error("❌ [CREATE EXPENSE] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
 
 // ---------- GET ALL EXPENSES ----------
 router.get("/", auth, async (req, res) => {
-  if (!req.user.isAdmin && !req.user.isSuperStakeholder) return res.status(403).json({ message: "Access denied" });
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder)
+    return res.status(403).json({ message: "Access denied" });
 
   try {
     const expenses = await Expense.find({ companyId: req.user.companyId })
       .populate("enteredByUser", "name company companyId")
       .sort({ createdAt: -1 });
+
     res.status(200).json(expenses);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
+/* ======================================================
+   ID-BASED ROUTES (SAFE & EXPLICIT)
+====================================================== */
+
 // ---------- GET SINGLE EXPENSE ----------
 router.get("/expense/:id", auth, async (req, res) => {
   try {
     const expense = await Expense.findById(req.params.id)
       .populate("enteredByUser", "company companyId");
-    if (!expense) return res.status(404).json({ message: "Expense not found" });
 
-    if (expense.companyId.toString() !== req.user.companyId.toString()) return res.status(403).json({ message: "Access denied" });
+    if (!expense) return res.status(404).json({ message: "Expense not found" });
+    if (expense.companyId.toString() !== req.user.companyId.toString())
+      return res.status(403).json({ message: "Access denied" });
 
     res.status(200).json(expense);
   } catch (error) {
@@ -227,132 +244,74 @@ router.get("/expense/:id", auth, async (req, res) => {
 });
 
 // ---------- UPDATE EXPENSE ----------
-// ---------------------------
-// UPDATE EXPENSE
-// ---------------------------
-router.put("/:id", auth, upload.array("receipts"), async (req, res) => {
+router.put("/expense/:id", auth, upload.array("receipts"), async (req, res) => {
   try {
     const existing = await Expense.findById(req.params.id);
     if (!existing) return res.status(404).json({ message: "Expense not found" });
-
     if (existing.companyId.toString() !== req.user.companyId.toString())
       return res.status(403).json({ message: "Access denied" });
 
-    // ---------- Validation ----------
-    const schema = Joi.object({
-      dateOfExpense: Joi.date(),
-      expenseCategory: Joi.string().max(100),
-      description: Joi.string().max(500).allow(""),
-      paidTo: Joi.string().max(200).allow(""),
-      amount: Joi.number().min(0),
-      type: Joi.string().valid("Income", "Expense"),
-      paymentMethod: Joi.string().max(50).allow(""),
-      department: Joi.string().max(100).allow(""),
-      approvedBy: Joi.string().max(200).allow(""),
-      status: Joi.string().valid("Pending", "Approved", "Declined"),
-      taxFlags: Joi.object({
-        vatClaimable: Joi.boolean(),
-        whtApplicable: Joi.boolean(),
-        citAllowable: Joi.boolean(),
-      }),
-      whtRate: Joi.number().min(0).max(1),
-    });
-
-    const { error, value } = schema.validate(req.body, { stripUnknown: true });
-    if (error) return res.status(400).json({ message: error.details[0].message });
-
-    // ---------- Handle new uploads ----------
     let receiptUploads = existing.receiptUploads;
     if (req.files?.length) {
       const newUploads = await Promise.all(req.files.map(uploadToAppwrite));
       receiptUploads = [...receiptUploads, ...newUploads];
     }
 
-    Object.assign(existing, { ...value, receiptUploads });
-    const updated = await existing.save();
-    res.status(200).json(updated);
-
+    Object.assign(existing, req.body, { receiptUploads });
+    res.status(200).json(await existing.save());
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-
 // ---------- UPDATE EXPENSE STATUS ----------
-// ---------------------------
-// UPDATE EXPENSE STATUS
-// ---------------------------
-router.patch("/:id/status", auth, async (req, res) => {
+router.patch("/expense/:id/status", auth, async (req, res) => {
   try {
-    // ---------- Validation ----------
-    const schema = Joi.object({
-      status: Joi.string().valid("Pending", "Approved", "Declined").required(),
-    });
-
-    const { error, value } = schema.validate(req.body, { stripUnknown: true });
-    if (error) return res.status(400).json({ message: error.details[0].message });
-
-    const { status } = value;
-
     const expense = await Expense.findById(req.params.id);
     if (!expense) return res.status(404).json({ message: "Expense not found" });
 
-    if (expense.companyId.toString() !== req.user.companyId.toString())
-      return res.status(403).json({ message: "Access denied" });
+    expense.status = req.body.status;
+    if (req.body.status === "Approved") {
+      if (expense.taxFlags?.vatClaimable)
+        expense.vatAmount = +(expense.amount * 0.075).toFixed(2);
+      if (expense.taxFlags?.whtApplicable)
+        expense.whtAmount = +(expense.amount * (expense.whtRate || 0)).toFixed(2);
 
-    if (status === "Approved" && !req.user.isSuperStakeholder)
-      return res.status(403).json({ message: "Only SuperStakeholder can approve expenses" });
-
-    if (status === "Declined" && !req.user.isAdmin && !req.user.isSuperStakeholder)
-      return res.status(403).json({ message: "Not authorized to decline expenses" });
-
-    expense.status = status;
-    if (["Approved", "Declined"].includes(status)) expense.approvedBy = req.user.name;
-
-    // Compute VAT/WHT and update ledger if approved
-    if (status === "Approved") {
-      const { taxFlags = {} } = expense;
-      if (taxFlags.vatClaimable) expense.vatAmount = +(expense.amount * 0.075).toFixed(2);
-      if (taxFlags.whtApplicable) expense.whtAmount = +(expense.amount * (expense.whtRate || 0)).toFixed(2);
-
-      await expense.save();
       await updateCompanyTaxFromExpenses(expense);
-    } else {
-      await expense.save();
     }
 
-    res.status(200).json(expense);
-
+    res.status(200).json(await expense.save());
   } catch (error) {
-    console.error("❌ [UPDATE EXPENSE STATUS] Error:", error);
     res.status(500).json({ message: error.message });
   }
 });
 
-
-
 // ---------- DELETE EXPENSE ----------
-// ---------- DELETE EXPENSE ----------
-router.delete("/:id", auth, async (req, res) => {
-try {
-const expense = await Expense.findById(req.params.id);
-if (!expense) return res.status(404).json({ message: "Expense not found" });
+router.delete("/expense/:id", auth, async (req, res) => {
+  try {
+    const expense = await Expense.findById(req.params.id);
+    if (!expense) return res.status(404).json({ message: "Expense not found" });
 
+    if (expense.receiptUploads?.length) {
+      for (const file of expense.receiptUploads) {
+        try {
+          await axios.delete(
+            `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${file.id}`,
+            {
+              headers: {
+                "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+                "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
+              },
+            }
+          );
+        } catch {}
+      }
+    }
 
-if (expense.receiptUploads?.length) {
-for (const file of expense.receiptUploads) {
-try {
-await axios.delete(`${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${file.id}`, { headers: { "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID, "X-Appwrite-Key": process.env.APPWRITE_API_KEY } });
-} catch {}
-}
-}
-
-
-const deleted = await Expense.findByIdAndDelete(req.params.id);
-res.status(200).json(deleted);
-} catch (error) {
-res.status(500).json({ message: error.message });
-}
+    res.status(200).json(await Expense.findByIdAndDelete(req.params.id));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 module.exports = router;
