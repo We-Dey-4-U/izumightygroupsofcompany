@@ -6,6 +6,7 @@ const { auth, isAdmin, isStaff, isSuperStakeholder,isSubAdmin } = require("../mi
 
 // ✅ Import models properl
 const { Report } = require("../models/Report");
+
 const  Expense  = require("../models/Expense");
 const Attendance = require("../models/Attendance");
 const { User } = require("../models/user");
@@ -406,6 +407,10 @@ router.get("/expenses-summary", auth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+
+
+
 // -----------------------------
 // 5️⃣ STAFF PERFORMANCE TREND
 // -----------------------------

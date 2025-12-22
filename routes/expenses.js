@@ -317,4 +317,150 @@ router.get("/summary/monthly", auth, async (req, res) => {
   }
 });
 
+
+// ---------- MONTHLY BALANCE (Income - Expense) ----------
+// ---------- MONTHLY BALANCE (Income - Expense) ----------
+router.get("/summary/monthly-balance", auth, async (req, res) => {
+  console.log("🟢 [MONTHLY BALANCE] Request received");
+
+  try {
+    // ==========================
+    // AUTH / USER CONTEXT
+    // ==========================
+    console.log("👤 User Info:", {
+      userId: req.user?._id,
+      companyId: req.user?.companyId,
+      role: req.user?.role,
+    });
+
+    if (!req.user?.companyId) {
+      console.warn("⚠️ Missing companyId on user");
+      return res.status(400).json({ message: "Missing companyId" });
+    }
+
+    // ==========================
+    // BASIC DATA CHECK
+    // ==========================
+    const totalApproved = await Expense.countDocuments({
+      companyId: req.user.companyId,
+      status: "Approved",
+    });
+
+    console.log("📊 Approved expenses count:", totalApproved);
+
+    if (totalApproved === 0) {
+      console.warn("⚠️ No approved expenses found");
+    }
+
+    // ==========================
+    // SAMPLE DOCUMENT CHECK
+    // ==========================
+    const sampleDoc = await Expense.findOne({
+      companyId: req.user.companyId,
+      status: "Approved",
+    }).lean();
+
+    console.log("📄 Sample Approved Expense:", sampleDoc);
+
+    // ==========================
+    // AGGREGATION PIPELINE
+    // ==========================
+    const pipeline = [
+      {
+        $match: {
+          companyId: req.user.companyId,
+          status: "Approved",
+          $or: [
+            { dateOfExpense: { $ne: null } },
+            { createdAt: { $ne: null } },
+          ],
+        },
+      },
+
+      // Pick usable date
+      {
+        $addFields: {
+          effectiveDate: {
+            $cond: [
+              { $ifNull: ["$dateOfExpense", false] },
+              "$dateOfExpense",
+              "$createdAt",
+            ],
+          },
+        },
+      },
+
+      // Validate effectiveDate
+      {
+        $match: {
+          effectiveDate: { $ne: null },
+        },
+      },
+
+      {
+        $group: {
+          _id: {
+            year: { $year: "$effectiveDate" },
+            month: { $month: "$effectiveDate" },
+          },
+          totalIncome: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "Income"] }, "$amount", 0],
+            },
+          },
+          totalExpense: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "Expense"] }, "$amount", 0],
+            },
+          },
+        },
+      },
+
+      {
+        $addFields: {
+          balance: { $subtract: ["$totalIncome", "$totalExpense"] },
+        },
+      },
+
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          month: "$_id.month",
+          totalIncome: 1,
+          totalExpense: 1,
+          balance: 1,
+        },
+      },
+    ];
+
+    console.log("🧪 Aggregation Pipeline:", JSON.stringify(pipeline, null, 2));
+
+    // ==========================
+    // RUN AGGREGATION
+    // ==========================
+    const result = await Expense.aggregate(pipeline);
+
+    console.log("✅ Monthly Balance Aggregation Result:");
+    console.table(result);
+
+    if (!result || result.length === 0) {
+      console.warn("⚠️ Aggregation returned EMPTY result set");
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("❌ Monthly Balance FAILED");
+    console.error("Message:", error.message);
+    console.error("Stack:", error.stack);
+
+    return res.status(500).json({
+      message: "Monthly balance aggregation failed",
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

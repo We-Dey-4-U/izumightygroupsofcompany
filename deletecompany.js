@@ -1,6 +1,6 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
-const { User } = require("./models/user");
+const Company = require("./models/company"); // adjust path if neede
 
 const run = async () => {
   try {
@@ -16,13 +16,10 @@ const run = async () => {
     });
     console.log("✅ Connected!");
 
-    // 🔹 Superadmin email to keep
-    const superAdminEmail = "superadmin@techwireict.com";
-
-    // ⚠️ Delete all users except superadmin
-    console.log("⚠️ Deleting all users except SuperAdmin...");
-    const result = await User.deleteMany({ email: { $ne: superAdminEmail } });
-    console.log(`✅ Deleted ${result.deletedCount} user(s).`);
+    // ⚠️ Delete all company documents
+    console.log("⚠️ Deleting all company documents...");
+    const result = await Company.deleteMany({});
+    console.log(`✅ Deleted ${result.deletedCount} company document(s).`);
 
     process.exit(0);
   } catch (err) {
