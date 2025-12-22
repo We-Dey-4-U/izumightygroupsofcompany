@@ -212,7 +212,7 @@ router.get("/", auth, async (req, res) => {
 });
 
 // ---------- GET SINGLE EXPENSE ----------
-router.get("/:id", auth, async (req, res) => {
+router.get("/expense/:id", auth, async (req, res) => {
   try {
     const expense = await Expense.findById(req.params.id)
       .populate("enteredByUser", "company companyId");
