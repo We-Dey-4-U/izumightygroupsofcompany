@@ -268,10 +268,10 @@ router.get("/expenses-summary", auth, async (req, res) => {
       weeklyIncome,
       monthlyExpense,
       monthlyIncome,
-      monthlyBalance,
+      monthlyBalanceAgg,
       topCategories,
     ] = await Promise.all([
-      // Weekly Expense (amount)
+      // Weekly Expense
       Expense.aggregate([
         {
           $match: {
@@ -283,7 +283,7 @@ router.get("/expenses-summary", auth, async (req, res) => {
         { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
       ]),
 
-      // Weekly Income (amount)
+      // Weekly Income
       Expense.aggregate([
         {
           $match: {
@@ -295,7 +295,7 @@ router.get("/expenses-summary", auth, async (req, res) => {
         { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
       ]),
 
-      // Monthly Expense (amount)
+      // Monthly Expense
       Expense.aggregate([
         {
           $match: {
@@ -307,7 +307,7 @@ router.get("/expenses-summary", auth, async (req, res) => {
         { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
       ]),
 
-      // Monthly Income (amount)
+      // Monthly Income
       Expense.aggregate([
         {
           $match: {
@@ -319,7 +319,7 @@ router.get("/expenses-summary", auth, async (req, res) => {
         { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
       ]),
 
-      // ✅ MONTHLY CLOSING BALANCE (SOURCE OF TRUTH)
+      // ✅ MONTHLY BALANCE — COMPUTED (PRODUCTION SAFE)
       Expense.aggregate([
         {
           $match: {
@@ -327,9 +327,26 @@ router.get("/expenses-summary", auth, async (req, res) => {
             dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
           },
         },
-        { $sort: { dateOfExpense: -1, createdAt: -1 } },
-        { $limit: 1 },
-        { $project: { balanceAfterTransaction: 1 } },
+        {
+          $group: {
+            _id: null,
+            totalIncome: {
+              $sum: {
+                $cond: [{ $eq: ["$type", "Income"] }, "$amount", 0],
+              },
+            },
+            totalExpense: {
+              $sum: {
+                $cond: [{ $eq: ["$type", "Expense"] }, "$amount", 0],
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            balance: { $subtract: ["$totalIncome", "$totalExpense"] },
+          },
+        },
       ]),
 
       // Top Categories
@@ -357,11 +374,8 @@ router.get("/expenses-summary", auth, async (req, res) => {
       monthlyExpenses: monthlyExpense[0]?.totalAmount || 0,
       monthlyIncome: monthlyIncome[0]?.totalAmount || 0,
 
-      // ✅ THIS IS WHAT DASHBOARD MUST DISPLAY
-        monthlyBalance:
-  monthlyBalance[0]?.balanceAfterTransaction ??
-  ((monthlyIncome[0]?.totalAmount || 0) -
-   (monthlyExpense[0]?.totalAmount || 0)),
+      // ✅ ALWAYS RETURNS A NUMBER
+      monthlyBalance: monthlyBalanceAgg[0]?.balance || 0,
 
       topCategories: topCategories.map((c) => ({
         category: c._id,
