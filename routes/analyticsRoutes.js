@@ -319,12 +319,25 @@ router.get("/expenses-summary", auth, async (req, res) => {
         { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
       ]),
 
-      // ✅ MONTHLY BALANCE — COMPUTED (PRODUCTION SAFE)
+      // ✅ MONTHLY BALANCE — FIXED (PRODUCTION SAFE)
       Expense.aggregate([
         {
           $match: {
             companyId: req.user.companyId,
-            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
+            $or: [
+              {
+                dateOfExpense: {
+                  $gte: startOfMonth,
+                  $lte: endOfMonth,
+                },
+              },
+              {
+                createdAt: {
+                  $gte: startOfMonth,
+                  $lte: endOfMonth,
+                },
+              },
+            ],
           },
         },
         {
@@ -344,7 +357,10 @@ router.get("/expenses-summary", auth, async (req, res) => {
         },
         {
           $project: {
-            balance: { $subtract: ["$totalIncome", "$totalExpense"] },
+            _id: 0,
+            balance: {
+              $subtract: ["$totalIncome", "$totalExpense"],
+            },
           },
         },
       ]),
@@ -374,8 +390,11 @@ router.get("/expenses-summary", auth, async (req, res) => {
       monthlyExpenses: monthlyExpense[0]?.totalAmount || 0,
       monthlyIncome: monthlyIncome[0]?.totalAmount || 0,
 
-      // ✅ ALWAYS RETURNS A NUMBER
-      monthlyBalance: monthlyBalanceAgg[0]?.balance || 0,
+      // ✅ GUARANTEED NUMBER (PRODUCTION + LOCAL)
+      monthlyBalance:
+        typeof monthlyBalanceAgg[0]?.balance === "number"
+          ? monthlyBalanceAgg[0].balance
+          : 0,
 
       topCategories: topCategories.map((c) => ({
         category: c._id,
@@ -387,7 +406,6 @@ router.get("/expenses-summary", auth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
 // -----------------------------
 // 5️⃣ STAFF PERFORMANCE TREND
 // -----------------------------
