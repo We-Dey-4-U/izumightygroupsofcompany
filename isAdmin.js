@@ -16,7 +16,9 @@ if (!process.env.CONNECTION_STRING) {
 //admin@techwireict.com
 //admin200@techwireict.org
 //stakeholder@techwireict.org
-const targetEmail = "stakeholder20@techwireict.com";
+//Delightsome@techwireict.com
+//stakeholder20@techwireict.com
+const targetEmail = "Delightsome@techwireict.com";
 
 const makeAdmin = async () => {
   try {
@@ -33,10 +35,10 @@ const makeAdmin = async () => {
       process.exit(1);
     }
 
-    user.isAdmin = false;
+    user.isAdmin = true;
     user.isSubAdmin = false; // Optional: reset subadmin
      user.isStaff = false; // Optional: reset subadmin
-    user.isSuperStakeholder = true; // Optional: reset super stakeholder
+    user.isSuperStakeholder = false; // Optional: reset super stakeholder
     await user.save();
 
     console.log(`✔ User ${targetEmail} is now an admin`);

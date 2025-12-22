@@ -1,8 +1,6 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
-const Company = require("./models/Company"); // adjust path if needed
-
-const KEEP_PHONE = "+2348024142281"; // company to keep
+const { Product } = require("./models/product"); // adjust path if needed
 
 const run = async () => {
   try {
@@ -18,10 +16,10 @@ const run = async () => {
     });
     console.log("✅ Connected!");
 
-    // ⚠️ Delete all companies except the one with KEEP_PHONE
-    console.log(`⚠️ Deleting all companies except the one with phone: ${KEEP_PHONE}...`);
-    const result = await Company.deleteMany({ phone: { $ne: KEEP_PHONE } });
-    console.log(`✅ Deleted ${result.deletedCount} company document(s).`);
+    // ⚠️ Delete all products
+    console.log("⚠️ Deleting all products...");
+    const result = await Product.deleteMany({});
+    console.log(`✅ Deleted ${result.deletedCount} product(s).`);
 
     process.exit(0);
   } catch (err) {
