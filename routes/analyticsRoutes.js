@@ -253,6 +253,8 @@ router.get("/attendance-summary", auth, async (req, res) => {
 // -----------------------------
 // EXPENSE SUMMARY (Weekly / Monthly)
 // -----------------------------
+
+
 router.get("/expenses-summary", auth, async (req, res) => {
   if (!req.user.isAdmin && !req.user.isSuperStakeholder) {
     return res.status(403).json({ message: "Access denied" });
@@ -264,150 +266,61 @@ router.get("/expenses-summary", auth, async (req, res) => {
     const startOfMonth = moment().startOf("month").toDate();
     const endOfMonth = moment().endOf("month").toDate();
 
-    const [
-      weeklyExpense,
-      weeklyIncome,
-      monthlyExpense,
-      monthlyIncome,
-      monthlyBalanceAgg,
-      topCategories,
-    ] = await Promise.all([
-      // Weekly Expense
-      Expense.aggregate([
-        {
-          $match: {
-            companyId: req.user.companyId,
-            type: "Expense",
-            dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
+    // Fetch all monthly expenses & incomes once
+    const monthlyExpensesDocs = await Expense.find({
+      companyId: req.user.companyId,
+      dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
+    });
 
-      // Weekly Income
-      Expense.aggregate([
-        {
-          $match: {
-            companyId: req.user.companyId,
-            type: "Income",
-            dateOfExpense: { $gte: startOfWeek, $lte: endOfWeek },
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
+    // Weekly totals
+    const weeklyDocs = monthlyExpensesDocs.filter(
+      (e) => e.dateOfExpense >= startOfWeek && e.dateOfExpense <= endOfWeek
+    );
 
-      // Monthly Expense
-      Expense.aggregate([
-        {
-          $match: {
-            companyId: req.user.companyId,
-            type: "Expense",
-            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
+    const weeklyExpense = weeklyDocs
+      .filter((e) => e.type === "Expense")
+      .reduce((acc, e) => acc + e.amount, 0);
 
-      // Monthly Income
-      Expense.aggregate([
-        {
-          $match: {
-            companyId: req.user.companyId,
-            type: "Income",
-            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-          },
-        },
-        { $group: { _id: null, totalAmount: { $sum: "$amount" } } },
-      ]),
+    const weeklyIncome = weeklyDocs
+      .filter((e) => e.type === "Income")
+      .reduce((acc, e) => acc + e.amount, 0);
 
-      // ✅ MONTHLY BALANCE — FIXED (PRODUCTION SAFE)
-      Expense.aggregate([
-        {
-          $match: {
-            companyId: req.user.companyId,
-            $or: [
-              {
-                dateOfExpense: {
-                  $gte: startOfMonth,
-                  $lte: endOfMonth,
-                },
-              },
-              {
-                createdAt: {
-                  $gte: startOfMonth,
-                  $lte: endOfMonth,
-                },
-              },
-            ],
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            totalIncome: {
-              $sum: {
-                $cond: [{ $eq: ["$type", "Income"] }, "$amount", 0],
-              },
-            },
-            totalExpense: {
-              $sum: {
-                $cond: [{ $eq: ["$type", "Expense"] }, "$amount", 0],
-              },
-            },
-          },
-        },
-        {
-          $project: {
-            _id: 0,
-            balance: {
-              $subtract: ["$totalIncome", "$totalExpense"],
-            },
-          },
-        },
-      ]),
+    // Monthly totals
+    const monthlyExpense = monthlyExpensesDocs
+      .filter((e) => e.type === "Expense")
+      .reduce((acc, e) => acc + e.amount, 0);
 
-      // Top Categories
-      Expense.aggregate([
-        {
-          $match: {
-            companyId: req.user.companyId,
-            dateOfExpense: { $gte: startOfMonth, $lte: endOfMonth },
-          },
-        },
-        {
-          $group: {
-            _id: "$expenseCategory",
-            total: { $sum: "$amount" },
-          },
-        },
-        { $sort: { total: -1 } },
-        { $limit: 5 },
-      ]),
-    ]);
+    const monthlyIncome = monthlyExpensesDocs
+      .filter((e) => e.type === "Income")
+      .reduce((acc, e) => acc + e.amount, 0);
+
+    // Monthly balance using totals
+    const monthlyBalance = monthlyIncome - monthlyExpense;
+
+    // Top categories (monthly)
+    const categoryMap = {};
+    monthlyExpensesDocs.forEach((e) => {
+      categoryMap[e.expenseCategory] = (categoryMap[e.expenseCategory] || 0) + e.amount;
+    });
+
+    const topCategories = Object.entries(categoryMap)
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
 
     res.status(200).json({
-      weeklyExpenses: weeklyExpense[0]?.totalAmount || 0,
-      weeklyIncome: weeklyIncome[0]?.totalAmount || 0,
-      monthlyExpenses: monthlyExpense[0]?.totalAmount || 0,
-      monthlyIncome: monthlyIncome[0]?.totalAmount || 0,
-
-      // ✅ GUARANTEED NUMBER (PRODUCTION + LOCAL)
-      monthlyBalance:
-        typeof monthlyBalanceAgg[0]?.balance === "number"
-          ? monthlyBalanceAgg[0].balance
-          : 0,
-
-      topCategories: topCategories.map((c) => ({
-        category: c._id,
-        total: c.total,
-      })),
+      weeklyExpenses: weeklyExpense,
+      weeklyIncome: weeklyIncome,
+      monthlyExpenses: monthlyExpense,
+      monthlyIncome: monthlyIncome,
+      monthlyBalance: monthlyBalance,
+      topCategories: topCategories,
     });
   } catch (err) {
     console.error("❌ Expenses Summary Error:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
-
 
 
 
