@@ -53,13 +53,13 @@ app.use(Sentry.Handlers.tracingHandler());
 /* ------------------------------
    PRERENDER
 ------------------------------ */
-prerender.set("prerenderToken", process.env.PRERENDER_TOKEN);
-app.use((req, res, next) => {
-  if (req.url.startsWith("/api")) {
-    return next(); // 🚫 skip prerender for API
-  }
-  prerender(req, res, next);
-});
+//prerender.set("prerenderToken", process.env.PRERENDER_TOKEN);
+////app.use((req, res, next) => {
+ // if (req.url.startsWith("/api")) {
+  //  return next(); // 🚫 skip prerender for API
+//  }
+//  prerender(req, res, next);
+//});
 
 /* ------------------------------
    SECURITY HEADERS
