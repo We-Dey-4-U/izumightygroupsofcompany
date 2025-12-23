@@ -7,6 +7,7 @@ const helmet = require("helmet");
 const Sentry = require("@sentry/node");
 const Tracing = require("@sentry/tracing");
 const rateLimit = require("express-rate-limit");
+const financeRoutes = require("./routes/finance");
 
 // Routes
 const register = require("./routes/register");
@@ -165,6 +166,8 @@ app.use("/api/reports", reportsRoute);
 app.use("/api/users", users);
 app.use("/api/expenses", expensesRoute);
 app.use("/api/safe-fetch", safeFetchRoutes);
+
+app.use("/api/finance", financeRoutes);
 
 /* ------------------------------
    BASE ROUTES
