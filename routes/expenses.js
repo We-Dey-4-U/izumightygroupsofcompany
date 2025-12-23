@@ -6,11 +6,24 @@ const axios = require("axios");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 const Joi = require("joi");
-
+const mongoose = require("mongoose");   // 👈 ADD THIS
 const Expense = require("../models/Expense");
 const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 const { User } = require("../models/user");
 const { updateCompanyTaxFromExpenses } = require("../utils/companyTaxUpdater");
+
+
+// =======================================
+// Guard against invalid ObjectId params
+// =======================================
+router.param("id", (req, res, next, id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({
+      message: "Invalid Expense ID",
+    });
+  }
+  next();
+});
 
 // ---------- Appwrite Setup Check ----------
 (async () => {
