@@ -86,8 +86,60 @@ const productSchema = new mongoose.Schema(
   "Bridal Fabrics",
   "Ceremonial Wear",
 
-    // ================= GENERAL =================
-    "All Products"
+   // ================= FARM & AGRICULTURE (NEW) =================
+
+  // Crops
+  "Cereals & Grains",
+  "Legumes & Pulses",
+  "Roots & Tubers",
+  "Vegetables",
+  "Fruits",
+  "Cash Crops",
+  "Herbs & Spices",
+
+  // Livestock
+  "Poultry",
+  "Cattle",
+  "Goats & Sheep",
+  "Pigs",
+  "Rabbits",
+  "Livestock Feeds",
+
+  // Animal Products
+  "Eggs",
+  "Milk & Dairy Products",
+  "Meat Products",
+  "Leather & Hides",
+
+  // Aquaculture
+  "Fish",
+  "Shrimp & Prawns",
+  "Crabs & Shellfish",
+  "Fish Feed",
+  "Aquaculture Equipment",
+
+  // Farm Inputs
+  "Seeds & Seedlings",
+  "Fertilizers",
+  "Pesticides & Herbicides",
+  "Organic Farm Inputs",
+  "Animal Vaccines",
+
+  // Farm Tools & Equipment
+  "Farm Tools",
+  "Farm Machinery",
+  "Irrigation Equipment",
+  "Greenhouse Equipment",
+  "Storage & Silos",
+
+  // Processed Farm Products
+  "Processed Foods",
+  "Packaged Grains",
+  "Flour & Starches",
+  "Oils & Extracts",
+
+  // ================= GENERAL =================
+  "All Products"
   ]
     },
     desc: { type: String, required: true },

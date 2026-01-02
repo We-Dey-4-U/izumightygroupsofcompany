@@ -41,8 +41,10 @@ const userSchema = new mongoose.Schema(
     isStaff: { type: Boolean, default: false },
     isSuperStakeholder: { type: Boolean, default: false }, // ✅ NEW FIELD
      isSubAdmin: { type: Boolean, default: false },
-     isSuperAdmin: { type: Boolean, default: false } // Only superadmin can create companies
+     isSuperAdmin: { type: Boolean, default: false }, // Only superadmin can create companies
     //  isSuperAdmin: { type: Boolean, default: false }, // Only superadmin can onboard companies
+     // 🔹 Freelancer role
+    isFreelancer: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

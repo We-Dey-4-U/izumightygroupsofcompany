@@ -37,6 +37,26 @@ router.get("/stats", isAdmin,   async (req, res) => {
     }
 });
 
+
+// GET all users of the same company (freelancers + staff)
+router.get("/company", auth, async (req, res) => {
+  try {
+    if (!req.user.companyId) {
+      return res.status(400).json({ message: "User is not linked to a company" });
+    }
+
+    const users = await User.find({
+      companyId: req.user.companyId,
+      $or: [{ isFreelancer: true }, { isStaff: true }],
+    }).select("_id name email isFreelancer isStaff");
+
+    res.status(200).json(users);
+  } catch (err) {
+    console.error("🔥 [GET COMPANY USERS ERROR]:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
 
 

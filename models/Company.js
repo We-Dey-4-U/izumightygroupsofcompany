@@ -20,6 +20,12 @@ const companySchema = new mongoose.Schema({
 
   bank: bankSchema, // ✅ COMPANY BANK DETAILS
 
+  // ✅ NEW — company logo
+  logo: {
+    id: { type: String },
+    url: { type: String },
+  },
+
   code: { type: Number, required: true, unique: true },
   createdAt: { type: Date, default: Date.now },
 });

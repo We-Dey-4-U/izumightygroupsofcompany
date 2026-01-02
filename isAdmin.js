@@ -7,6 +7,9 @@ if (!process.env.CONNECTION_STRING) {
   console.error("❌ CONNECTION_STRING missing in .env");
   process.exit(1);
 }
+
+//scribleadmin@techwireict.com
+//Scrible@29
 //Ikesonlimited@techwireict.com
 //welbeg233@electricity.com
 //admindelight@delightsome.com
@@ -18,7 +21,9 @@ if (!process.env.CONNECTION_STRING) {
 //stakeholder@techwireict.org
 //Delightsome@techwireict.com
 //stakeholder20@techwireict.com
-const targetEmail = "stakeholderDelightsome@techwireict.com";
+//Stakeholder@techwireict.com
+const targetEmail = "scribleadmin@techwireict.com";
+
 
 const makeAdmin = async () => {
   try {
@@ -35,10 +40,10 @@ const makeAdmin = async () => {
       process.exit(1);
     }
 
-    user.isAdmin = false;
+    user.isAdmin = true;
     user.isSubAdmin = false; // Optional: reset subadmin
      user.isStaff = false; // Optional: reset subadmin
-    user.isSuperStakeholder = true; // Optional: reset super stakeholder
+    user.isSuperStakeholder = false; // Optional: reset super stakeholder
     await user.save();
 
     console.log(`✔ User ${targetEmail} is now an admin`);

@@ -1,100 +1,220 @@
+require("dotenv").config();
+
 const express = require("express");
 const router = express.Router();
+
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
+
+const axios = require("axios");
+const FormData = require("form-data");
+const { v4: uuidv4 } = require("uuid");
+
 const { body, validationResult } = require("express-validator");
 const Company = require("../models/Company");
 const { Product } = require("../models/product");
 const { auth, isSuperAdmin } = require("../middleware/auth");
 
+/* ======================================================
+   🔧 REBUILD BANK OBJECT (🔥 FIX FOR multipart/form-data)
+====================================================== */
+const rebuildBank = (req, res, next) => {
+  if (!req.body.bank && req.body["bank.bankName"]) {
+    req.body.bank = {
+      bankName: req.body["bank.bankName"],
+      accountNumber: req.body["bank.accountNumber"],
+      accountName: req.body["bank.accountName"],
+    };
+  }
+  next();
+};
+
+/* ======================================================
+   🧠 Appwrite Connectivity Check
+====================================================== */
+(async () => {
+  console.log("🧠 [INIT] Checking Appwrite configuration...");
+
+  const {
+    APPWRITE_ENDPOINT,
+    APPWRITE_PROJECT_ID,
+    APPWRITE_BUCKET_ID,
+    APPWRITE_API_KEY,
+  } = process.env;
+
+  if (!APPWRITE_ENDPOINT || !APPWRITE_PROJECT_ID || !APPWRITE_BUCKET_ID || !APPWRITE_API_KEY) {
+    console.error("❌ [INIT] Missing Appwrite environment variables!");
+    return;
+  }
+
+  try {
+    const res = await axios.get(
+      `${APPWRITE_ENDPOINT}/storage/buckets/${APPWRITE_BUCKET_ID}`,
+      {
+        headers: {
+          "X-Appwrite-Project": APPWRITE_PROJECT_ID,
+          "X-Appwrite-Key": APPWRITE_API_KEY,
+        },
+      }
+    );
+    console.log("✅ [INIT] Appwrite bucket reachable:", res.data.name);
+  } catch (err) {
+    console.error("❌ [INIT] Appwrite bucket check failed:", err.message);
+  }
+})();
+
+/* ======================================================
+   📤 Upload Logo to Appwrite
+====================================================== */
+async function uploadToAppwrite(file) {
+  if (!file || !file.buffer) {
+    throw new Error("No file buffer found");
+  }
+
+  const fileId = uuidv4();
+  const formData = new FormData();
+
+  formData.append("fileId", fileId);
+  formData.append("file", file.buffer, {
+    filename: file.originalname,
+    contentType: file.mimetype,
+    knownLength: file.size,
+  });
+
+  const resp = await axios.post(
+    `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files`,
+    formData,
+    {
+      headers: {
+        "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+        "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
+        ...formData.getHeaders(),
+      },
+      maxBodyLength: Infinity,
+    }
+  );
+
+  return {
+    id: resp.data.$id,
+    url: `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${resp.data.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`,
+  };
+}
+
+/* ======================================================
+   🔢 Company Code Generator
+====================================================== */
 function generateCompanyCode() {
   return Math.floor(1000 + Math.random() * 9000);
 }
 
+/* ======================================================
+   ✅ CREATE COMPANY
+====================================================== */
 router.post(
   "/create",
   auth,
   isSuperAdmin,
+  upload.single("logo"),
+  rebuildBank, // 🔥 MUST BE BEFORE VALIDATION
   [
     body("name").trim().notEmpty().withMessage("Company name is required"),
     body("rcNumber").trim().notEmpty().withMessage("RC Number is required"),
     body("tin").trim().notEmpty().withMessage("TIN is required"),
     body("state").optional().trim(),
-    body("isVATRegistered").optional().isBoolean(),
     body("phone")
       .trim()
       .notEmpty()
       .withMessage("Phone number is required")
-      .isLength({ min: 10 })
-      .withMessage("Phone number must be valid"),
+      .isLength({ min: 10 }),
+    body("isVATRegistered").optional().isBoolean(),
     body("bank").exists().withMessage("Bank details are required"),
-    body("bank.bankName").trim().notEmpty().withMessage("Bank name is required"),
+    body("bank.bankName").notEmpty().withMessage("Bank name is required"),
     body("bank.accountNumber")
-      .trim()
       .isNumeric()
       .isLength({ min: 10, max: 10 })
       .withMessage("Account number must be 10 digits"),
-    body("bank.accountName").trim().notEmpty().withMessage("Account name is required"),
+    body("bank.accountName").notEmpty().withMessage("Account name is required"),
   ],
   async (req, res) => {
+    console.log("🚀 [CREATE COMPANY] Incoming request");
+    console.log("📦 req.body:", req.body);
+    console.log("📁 req.file:", req.file ? req.file.originalname : "NO FILE");
+
     const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ message: "Invalid input", errors: errors.array() });
+    if (!errors.isEmpty()) {
+      console.error("❌ [VALIDATION ERROR]", errors.array());
+      return res.status(400).json({ message: "Invalid input", errors: errors.array() });
+    }
 
     try {
-      const { name, rcNumber, tin, state, isVATRegistered = false, bank, phone } = req.body;
+      const {
+        name,
+        rcNumber,
+        tin,
+        state,
+        phone,
+        isVATRegistered = false,
+        bank,
+      } = req.body;
 
-      const sanitizedBank = {
-        bankName: bank.bankName.trim(),
-        accountNumber: bank.accountNumber.trim(),
-        accountName: bank.accountName.trim(),
-      };
-
-      let code, exists = true;
-      while (exists) {
-        code = generateCompanyCode();
-        exists = await Company.findOne({ code });
+      let logo = null;
+      if (req.file) {
+        logo = await uploadToAppwrite(req.file);
       }
 
-      const company = new Company({ name, rcNumber, tin, state, isVATRegistered, phone, bank: sanitizedBank, code });
-      await company.save();
+      let code;
+      while (await Company.exists({ code: (code = generateCompanyCode()) })) {}
+
+      const company = await Company.create({
+        name,
+        rcNumber,
+        tin,
+        state,
+        phone,
+        isVATRegistered,
+        bank,
+        code,
+        logo,
+      });
 
       res.status(201).json({
         message: "Company created successfully",
-        company, // send full object
+        company,
       });
     } catch (err) {
-      console.error("Error creating company:", err);
+      console.error("🔥 [CREATE COMPANY ERROR]", err);
       res.status(500).json({ message: "Server error" });
     }
   }
 );
 
+/* ======================================================
+   📄 GET ALL COMPANIES
+====================================================== */
 router.get("/", auth, isSuperAdmin, async (req, res) => {
-  try {
-    const companies = await Company.find();
-    res.status(200).json(companies);
-  } catch (err) {
-    console.error("Error fetching companies:", err);
-    res.status(500).json({ message: "Server error" });
-  }
+  const companies = await Company.find();
+  res.json(companies);
 });
 
+/* ======================================================
+   🧾 GET COMPANY BY PRODUCTS
+====================================================== */
 router.post("/by-products", auth, async (req, res) => {
-  try {
-    const { productIds } = req.body;
-    if (!Array.isArray(productIds) || !productIds.length) return res.status(400).json({ message: "Invalid product list" });
+  const { productIds } = req.body;
 
-    const products = await Product.find({ _id: { $in: productIds } });
-    if (!products.length) return res.status(400).json({ message: "Invalid products" });
-
-    const companyId = products[0].companyId.toString();
-    if (products.some(p => p.companyId.toString() !== companyId))
-      return res.status(400).json({ message: "Multiple companies not allowed in one order" });
-
-    const company = await Company.findById(companyId).select("name phone bank");
-    res.json(company);
-  } catch (err) {
-    console.error("Error fetching company by products:", err);
-    res.status(500).json({ message: "Server error" });
+  if (!Array.isArray(productIds) || !productIds.length) {
+    return res.status(400).json({ message: "Invalid product list" });
   }
+
+  const products = await Product.find({ _id: { $in: productIds } });
+  const companyId = products[0]?.companyId;
+
+  if (!companyId) {
+    return res.status(400).json({ message: "Invalid products" });
+  }
+
+  const company = await Company.findById(companyId).select("name phone bank logo");
+  res.json(company);
 });
 
 module.exports = router;

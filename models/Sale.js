@@ -51,7 +51,16 @@ const saleSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true
-    }
+    },
+
+    // 🔹 Commission fields
+    salesperson: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: "User", 
+      default: null // optional
+    },
+    commissionRate: { type: Number, default: 0 }, // e.g., 5 for 5%
+    commissionAmount: { type: Number, default: 0 } // calculated
   },
   { timestamps: true }
 );

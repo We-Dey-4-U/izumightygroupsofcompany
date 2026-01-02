@@ -8,7 +8,7 @@ const Sentry = require("@sentry/node");
 const Tracing = require("@sentry/tracing");
 const rateLimit = require("express-rate-limit");
 const financeRoutes = require("./routes/finance");
-
+const invoiceRoutes = require("./routes/invoice");
 // Routes
 const register = require("./routes/register");
 const login = require("./routes/login");
@@ -34,6 +34,7 @@ const companyTaxRoutes = require("./routes/companyTax");
 const payeRemittanceRoutes = require("./routes/payeRemittance");
 const firsExportRoutes = require("./routes/firsExport");
 const taxLedgerRoutes = require("./routes/taxLedger");
+const userRoutes = require("./routes/users");
 
 // Security
 const { apiKeyMiddleware, createRateLimiter } = require("./middleware/security");
@@ -171,7 +172,8 @@ app.use("/api/reports", reportsRoute);
 app.use("/api/users", users);
 app.use("/api/expenses", expensesRoute);
 app.use("/api/safe-fetch", safeFetchRoutes);
-
+app.use("/api/invoices", invoiceRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/finance", financeRoutes);
 
 /* ------------------------------

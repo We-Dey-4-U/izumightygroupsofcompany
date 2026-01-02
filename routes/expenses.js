@@ -11,6 +11,7 @@ const Expense = require("../models/Expense");
 const { auth, isAdmin, isSuperStakeholder } = require("../middleware/auth");
 const { User } = require("../models/user");
 const { updateCompanyTaxFromExpenses } = require("../utils/companyTaxUpdater");
+const postExpenseLedger = require("../utils/postExpenseLedger");
 
 
 // =======================================
@@ -285,13 +286,16 @@ router.patch("/expense/:id/status", auth, async (req, res) => {
 
     expense.status = req.body.status;
     if (req.body.status === "Approved") {
-      if (expense.taxFlags?.vatClaimable)
-        expense.vatAmount = +(expense.amount * 0.075).toFixed(2);
-      if (expense.taxFlags?.whtApplicable)
-        expense.whtAmount = +(expense.amount * (expense.whtRate || 0)).toFixed(2);
+  if (expense.taxFlags?.vatClaimable)
+    expense.vatAmount = +(expense.amount * 0.075).toFixed(2);
 
-      await updateCompanyTaxFromExpenses(expense);
-    }
+  if (expense.taxFlags?.whtApplicable)
+    expense.whtAmount = +(expense.amount * (expense.whtRate || 0)).toFixed(2);
+
+  await expense.save();              // 🔒 Save first
+  await postExpenseLedger(expense);  // 📘 Then post ledger
+  await updateCompanyTaxFromExpenses(expense);
+}
 
     res.status(200).json(await expense.save());
   } catch (error) {

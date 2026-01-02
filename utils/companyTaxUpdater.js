@@ -24,25 +24,36 @@ async function updateCompanyTaxFromSales(companyId, month, year, userId) {
     console.log(`📊 Sales found: ${sales.length}`);
     if (!sales.length) return null;
 
-    const totalSubtotal = sales.reduce((sum, s) => sum + (s.subtotal || 0), 0);
-    const totalVatAmount = Number((totalSubtotal * VAT_RATE).toFixed(2));
+    // Calculate totals dynamically based on each sale's VAT
+    let totalSubtotal = 0;
+    let totalVatAmount = 0;
+
+    for (const sale of sales) {
+      totalSubtotal += sale.subtotal || 0;
+      totalVatAmount += sale.vatAmount || 0; // Use sale.vatAmount dynamically
+    }
 
     const period = `${year}-${month.toString().padStart(2, "0")}`;
 
-    console.log(`💰 Total subtotal: ${totalSubtotal}, VAT: ${totalVatAmount}, Period: ${period}`);
+    console.log(`💰 Total subtotal: ${totalSubtotal}, Total VAT: ${totalVatAmount}, Period: ${period}`);
 
     // UPSERT ledger entry
-    let ledgerEntry = await CompanyTaxLedger.findOne({ companyId, taxType: "VAT", period, source: "Sale" });
+    let ledgerEntry = await CompanyTaxLedger.findOne({
+      companyId,
+      taxType: "VAT",
+      period,
+      source: "Sale",
+    });
 
     const ledgerData = {
       companyId,
       taxType: "VAT",
       period,
       basisAmount: totalSubtotal,
-      rate: VAT_RATE,
+      rate: totalSubtotal > 0 ? totalVatAmount / totalSubtotal : 0, // dynamic rate
       taxAmount: totalVatAmount,
       source: "Sale",
-      sourceRefs: sales.map(s => s._id),
+      sourceRefs: sales.map((s) => s._id),
       auditTrail: { computedBy: userId, computedAt: new Date() },
     };
 
@@ -57,7 +68,6 @@ async function updateCompanyTaxFromSales(companyId, month, year, userId) {
 
     console.log("✅ Sale ledger entry saved:", ledgerEntry._id);
     return ledgerEntry;
-
   } catch (err) {
     console.error("🔥 [UPDATE TAX LEDGER ERROR]:", err);
     throw err;
