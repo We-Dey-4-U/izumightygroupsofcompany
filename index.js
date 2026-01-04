@@ -4,12 +4,11 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const prerender = require("prerender-node");
 const helmet = require("helmet");
-const Sentry = require("@sentry/node");
-const Tracing = require("@sentry/tracing");
 const rateLimit = require("express-rate-limit");
+
+// Routes
 const financeRoutes = require("./routes/finance");
 const invoiceRoutes = require("./routes/invoice");
-// Routes
 const register = require("./routes/register");
 const login = require("./routes/login");
 const safeFetchRoutes = require("./routes/safeFetch");
@@ -36,31 +35,10 @@ const firsExportRoutes = require("./routes/firsExport");
 const taxLedgerRoutes = require("./routes/taxLedger");
 const userRoutes = require("./routes/users");
 
-// Security
+// Security middleware
 const { apiKeyMiddleware, createRateLimiter } = require("./middleware/security");
 
 const app = express();
-
-/* ------------------------------
-   SENTRY MONITORING & ALERTING
------------------------------- */
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  tracesSampleRate: 1.0,
-});
-app.use(Sentry.Handlers.requestHandler());
-app.use(Sentry.Handlers.tracingHandler());
-
-/* ------------------------------
-   PRERENDER
------------------------------- */
-//prerender.set("prerenderToken", process.env.PRERENDER_TOKEN);
-////app.use((req, res, next) => {
- // if (req.url.startsWith("/api")) {
-  //  return next(); // 🚫 skip prerender for API
-//  }
-//  prerender(req, res, next);
-//});
 
 /* ------------------------------
    SECURITY HEADERS
@@ -197,8 +175,6 @@ mongoose
 /* ------------------------------
    ERROR HANDLING
 ------------------------------ */
-app.use(Sentry.Handlers.errorHandler());
-
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ message: "Internal Server Error" });

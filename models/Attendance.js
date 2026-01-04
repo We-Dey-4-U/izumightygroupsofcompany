@@ -5,7 +5,7 @@ const attendanceSchema = new mongoose.Schema(
   {
     sn: {
       type: Number,
-      required: false, // Assigned automatically if neede
+      required: false, // Assigned automatically if need
     },
    // company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Company isolation
     branch: {

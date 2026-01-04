@@ -8,7 +8,7 @@ const { calculateVATFromSales } = require("../utils/companyTaxCalculator");
 const { calculateCIT } = require("../utils/citCalculator");
 router.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 
-/* =========================================================
+/* ======================================================
    COMPANY TAX OBLIGATION REPORT (FIRS)
    ❗ NOT EMPLOYEE TAX
 ========================================================= */
