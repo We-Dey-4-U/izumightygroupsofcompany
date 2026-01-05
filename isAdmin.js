@@ -8,12 +8,8 @@ if (!process.env.CONNECTION_STRING) {
   process.exit(1);
 }
 
-//scribleadmin@techwireict.com
-//Scrible@29
-//Ikesonlimited@techwireict.com
 //welbeg233@electricity.com
 //admindelight@delightsome.com
-//oba@gmail.com
 // Email of the account to make admin
 //techwireadmin@techwireict.com
 //admin@techwireict.com
@@ -22,7 +18,8 @@ if (!process.env.CONNECTION_STRING) {
 //Delightsome@techwireict.com
 //stakeholder20@techwireict.com
 //Stakeholder@techwireict.com
-const targetEmail = "harvesthub@sample.com";
+//admin001@techwireict.com
+const targetEmail = "admin001@techwireict.com";
 
 
 const makeAdmin = async () => {
