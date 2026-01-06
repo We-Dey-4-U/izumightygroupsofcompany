@@ -4,18 +4,22 @@ const { auth, isAdmin } = require("../middleware/auth");
 const TaxSettings = require("../models/TaxSettings");
 
 // GET company tax settings
+// GET company tax settings
 router.get("/", auth, isAdmin, async (req, res) => {
   try {
-    const settings = await TaxSettings.findOne({ companyId: req.user.companyId });
+    const companyId = req.user.companyId;
 
-    if (!settings) {
-      const newSettings = await TaxSettings.create({
-        companyId: req.user.companyId,
-        mode: "STANDARD_PAYE",
-        customPercent: 0
-      });
-      return res.json(newSettings);
-    }
+   let settings = await TaxSettings.findOne({ company: req.user.companyId });
+if (!settings) {
+  settings = await TaxSettings.create({
+    company: employee.companyId._id,
+    mode: "STANDARD_PAYE",
+    customPercent: 0,
+    nhfRate: 0.025,
+    nhisEmployee: 0.05,
+    nhisEmployer: 0.10
+  });
+}
 
     res.json(settings);
   } catch (err) {
@@ -27,11 +31,16 @@ router.get("/", auth, isAdmin, async (req, res) => {
 router.put("/", auth, isAdmin, async (req, res) => {
   try {
     const { mode, customPercent } = req.body;
+    const companyId = req.user.companyId;
 
     const updated = await TaxSettings.findOneAndUpdate(
-      { companyId: req.user.companyId },
+       { company: req.user.companyId }, // ✅ FIX
       { mode, customPercent },
-      { new: true, upsert: true }
+      {
+        new: true,
+        upsert: true,
+        runValidators: true            // 🔒 IMPORTANT
+      }
     );
 
     res.json(updated);

@@ -14,10 +14,10 @@ async function computeTaxes(
   nhisEmployeeDeduction = 0,
   companyId
 ) {
-  const settings = await TaxSettings.findOne({ companyId });
-  if (!settings) {
-    throw new Error(`Tax settings not found for company ${companyId}`);
-  }
+  const settings = await TaxSettings.findOne({ company: companyId });
+if (!settings) {
+  throw new Error(`Tax settings not found for company ${companyId}`);
+}
 
   /* ===========================
      CUSTOM PERCENT MODE

@@ -1,7 +1,13 @@
 const mongoose = require("mongoose");
 
 const taxSettingsSchema = new mongoose.Schema({
-  companyId: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true, unique: true },
+ company: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Company",
+  required: true,
+  unique: true,
+  index: true
+},
   mode: { type: String, enum: ["STANDARD_PAYE", "CUSTOM_PERCENT"], default: "STANDARD_PAYE" },
   customPercent: { type: Number, default: 0 },
   pensionEmployeeRate: { type: Number, default: 0.08 },

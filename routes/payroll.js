@@ -91,17 +91,17 @@ router.post(
         const grossSalary = Number(basicSalary) + Number(housingAllowance) + Number(medicalAllowance)
           + Number(transportationAllowance) + Number(leaveAllowance);
 
-        let settings = await TaxSettings.findOne({ companyId: employee.companyId._id });
-        if (!settings) {
-          settings = await TaxSettings.create({
-            companyId: employee.companyId._id,
-            mode: "STANDARD_PAYE",
-            customPercent: 0,
-            nhfRate: 0.025,
-            nhisEmployee: 0.05,
-            nhisEmployer: 0.10
-          });
-        }
+        let settings = await TaxSettings.findOne({ company: employee.companyId._id });
+if (!settings) {
+  settings = await TaxSettings.create({
+    company: employee.companyId._id,
+    mode: "STANDARD_PAYE",
+    customPercent: 0,
+    nhfRate: 0.025,
+    nhisEmployee: 0.05,
+    nhisEmployer: 0.10
+  });
+}
 
         settings.nhfRate = settings.nhfRate ?? 0.025;
         settings.nhisEmployee = settings.nhisEmployee ?? 0.05;

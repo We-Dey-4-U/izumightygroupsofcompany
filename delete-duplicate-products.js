@@ -1,48 +1,31 @@
-require("dotenv").config({ path: __dirname + "/.env" });
+require("dotenv").config();
 const mongoose = require("mongoose");
 
-const run = async () => {
-  try {
-    if (!process.env.CONNECTION_STRING) {
-      console.error("❌ CONNECTION_STRING missing in .env");
-      process.exit(1);
-    }
+async function run() {
+  await mongoose.connect(process.env.CONNECTION_STRING);
+  console.log("✅ Connected");
 
-    console.log("⏳ Connecting to MongoDB...");
-    await mongoose.connect(process.env.CONNECTION_STRING, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+  const collection = mongoose.connection.db.collection("taxsettings");
 
-    console.log("✅ Connected!");
+  // Find documents where company is null OR missing
+  const badDocs = await collection.find({
+    $or: [
+      { company: null },
+      { company: { $exists: false } }
+    ]
+  }).sort({ _id: 1 }).toArray();
 
-    const db = mongoose.connection.db;
-    const collection = db.collection("inventoryproducts");
+  if (badDocs.length > 1) {
+    const idsToDelete = badDocs.slice(1).map(d => d._id);
 
-    console.log("🔍 Checking indexes...");
-    const indexes = await collection.indexes();
-    console.log("📄 Current Indexes:", indexes);
+    await collection.deleteMany({ _id: { $in: idsToDelete } });
 
-    // Find sku index
-    const skuIndex = indexes.find(idx => idx.name === "sku_1");
-
-    if (!skuIndex) {
-      console.log("✨ No sku_1 index found. Nothing to remove.");
-      process.exit(0);
-    }
-
-    console.log("⚠️ Found OLD INDEX:", skuIndex);
-
-    console.log("🗑️ Removing sku_1 index...");
-    await collection.dropIndex("sku_1");
-
-    console.log("✅ SUCCESS! sku_1 index removed.");
-    process.exit(0);
-
-  } catch (err) {
-    console.error("❌ Error:", err);
-    process.exit(1);
+    console.log(`🗑️ Removed ${idsToDelete.length} invalid taxsettings docs`);
+  } else {
+    console.log("✅ No duplicate invalid taxsettings");
   }
-};
 
-run();
+  process.exit(0);
+}
+
+run().catch(console.error);

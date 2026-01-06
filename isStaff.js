@@ -8,12 +8,12 @@ if (!process.env.CONNECTION_STRING) {
   process.exit(1);
 }
 
-// Emails of the accounts to make staff
+// Emails of the accounts to make staf
 const staffEmails = [
- // "staff1@welbecgelectricity.com",
- // "welbegstaff2@welbeg.com",
-  "stakeholder@techwireict.com",
- // "techwire.staff2@example.com"
+ "staff2@techwireict.com",
+ "staff3@techwireict.com",
+  "staff1@techwireict.com",
+  "staff4@techwireict.com"
 ];
 
 const makeStaff = async () => {
@@ -32,10 +32,10 @@ const makeStaff = async () => {
         continue;
       }
 
-      user.isStaff = false;             // Set as staff
+      user.isStaff = true;             // Set as staff
       user.isAdmin = false;            // Remove admin if any
       user.isSubAdmin = false;         // Remove subadmin if any
-      user.isSuperStakeholder = true; // Remove super stakeholder if any
+      user.isSuperStakeholder = false; // Remove super stakeholder if any
 
       await user.save();
       console.log(`✔ User ${email} is now a staff member`);
