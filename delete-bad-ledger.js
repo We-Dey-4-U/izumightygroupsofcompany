@@ -1,6 +1,6 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
-const CompanyTaxLedger = require("./models/CompanyTaxLedger"); // adjust path if neede
+const CompanyTaxLedger = require("./models/CompanyTaxLedger"); // adjust path if need
 
 const run = async () => {
   try {

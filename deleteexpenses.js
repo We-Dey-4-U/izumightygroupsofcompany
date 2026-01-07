@@ -1,6 +1,6 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
-const { User } = require("./models/user");
+const Expense = require("./models/Expense"); // adjust path if needed
 
 const run = async () => {
   try {
@@ -15,19 +15,12 @@ const run = async () => {
       useUnifiedTopology: true,
     });
     console.log("✅ Connected!");
-   //ikenna.chinedu@techwireict.com
-    // 🔹 Emails to delete
-    const emailsToDelete = [
-  "staff002@techwireict.com",
- 
-];
 
-    console.log("⚠️ Deleting selected users...");
-    const result = await User.deleteMany({
-      email: { $in: emailsToDelete },
-    });
+    // ⚠️ WARNING: This will delete ALL Expense documents
+    console.log("⚠️ Deleting all Expense documents...");
+    const result = await Expense.deleteMany({});
 
-    console.log(`✅ Deleted ${result.deletedCount} user(s).`);
+    console.log(`✅ Deleted ${result.deletedCount} Expense record(s).`);
     process.exit(0);
   } catch (err) {
     console.error("❌ Error:", err);

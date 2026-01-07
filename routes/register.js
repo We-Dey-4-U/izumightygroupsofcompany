@@ -37,9 +37,10 @@ router.post("/", async (req, res) => {
     }
 
     const { name, email, password, companyCode } = req.body;
+    const normalizedEmail = email.toLowerCase().trim();
 
     // Check existing user
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) return res.status(400).json({ message: "User already exists." });
 
     let companyDoc = null;
@@ -47,7 +48,9 @@ router.post("/", async (req, res) => {
     let companyId = null;
 
     if (companyCode) {
-      companyDoc = await Company.findOne({ code: Number(companyCode) });
+      companyDoc = await Company
+  .findOne({ code: Number(companyCode) })
+  .maxTimeMS(5000);
       if (!companyDoc)
         return res
           .status(400)
@@ -59,15 +62,15 @@ router.post("/", async (req, res) => {
 
     // Create user
     const newUser = new User({
-      name,
-      email,
-      password, // will hash below
-      company: companyName,
-      companyId,
-    });
+  name,
+  email: normalizedEmail,
+  password,
+  company: companyName,
+  companyId,
+});
 
     // 🔐 Hash password
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(8);
     newUser.password = await bcrypt.hash(password, salt);
 
     await newUser.save();
@@ -87,9 +90,16 @@ router.post("/", async (req, res) => {
       token,
     });
   } catch (err) {
-    console.error("❌ Registration error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+  console.error("❌ Registration error:", err);
+
+  if (err.code === 11000) {
+    return res.status(400).json({
+      message: "User with this email already exists",
+    });
   }
+
+  res.status(500).json({ message: "Server error" });
+}
 });
 
 module.exports = router;

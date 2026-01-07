@@ -2,7 +2,7 @@ require("dotenv").config({ path: __dirname + "/.env" });
 const mongoose = require("mongoose");
 
 // Models
-const TaxHistory = require("./models/TaxHistory"); // adjust path if needed
+const TaxHistory = require("./models/TaxHistory"); // adjust path if neede
 const EmployerLiability = require("./models/EmployerLiability"); // adjust path if needed
 
 const run = async () => {

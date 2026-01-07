@@ -7,13 +7,12 @@ if (!process.env.CONNECTION_STRING) {
   console.error("❌ CONNECTION_STRING missing in .env");
   process.exit(1);
 }
-
-// Emails of the accounts to make staf
+//ikenna.chinedu@techwireict.com
+// Emails of the accounts to make sta
 const staffEmails = [
- "staff2@techwireict.com",
- "staff3@techwireict.com",
-  "staff1@techwireict.com",
-  "staff4@techwireict.com"
+ "aladeojebi.timilehin@techwireict.com",
+
+
 ];
 
 const makeStaff = async () => {

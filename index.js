@@ -14,7 +14,7 @@ const login = require("./routes/login");
 const safeFetchRoutes = require("./routes/safeFetch");
 const sosRoutes = require("./routes/sosRoutes");
 const productsRoute = require("./routes/products");
-const users = require("./routes/users");
+//const users = require("./routes/users");
 const orders = require("./routes/orders");
 const products = require("./products");
 const reportsRoute = require("./routes/reports");
@@ -39,6 +39,28 @@ const userRoutes = require("./routes/users");
 const { apiKeyMiddleware, createRateLimiter } = require("./middleware/security");
 
 const app = express();
+
+
+/* =====================================================
+   MONGODB CONNECTION (MUST COME FIRST)
+===================================================== */
+mongoose.set("strictQuery", true);
+
+mongoose
+  .connect(process.env.CONNECTION_STRING, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  })
+  .then(() => {
+    console.log("✅ MongoDB connected");
+  })
+  .catch((error) => {
+    console.error("❌ MongoDB connection failed:", error.message);
+    process.exit(1);
+  });
 
 /* ------------------------------
    SECURITY HEADERS
@@ -147,7 +169,7 @@ app.use("/api/firs-export", firsExportRoutes);
 app.use("/api/company", companyRoutes);
 app.use("/api/tax-ledger", taxLedgerRoutes);
 app.use("/api/reports", reportsRoute);
-app.use("/api/users", users);
+//app.use("/api/users", users);
 app.use("/api/expenses", expensesRoute);
 app.use("/api/safe-fetch", safeFetchRoutes);
 app.use("/api/invoices", invoiceRoutes);
@@ -164,13 +186,24 @@ app.get("/", (req, res) => {
 /* ------------------------------
    MONGODB CONNECTION
 ------------------------------ */
-mongoose
-  .connect(process.env.CONNECTION_STRING, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("MongoDB connection established..."))
-  .catch((error) => console.error("MongoDB connection failed:", error.message));
+//mongoose.set("strictQuery", true);
+
+//mongoose
+ // .connect(process.env.CONNECTION_STRING, {
+ //   useNewUrlParser: true,
+ //   useUnifiedTopology: true,
+ //   maxPoolSize: 10,
+ //   serverSelectionTimeoutMS: 5000,
+ //   socketTimeoutMS: 45000,
+//  })
+ // .then(() => {
+ //   console.log("✅ MongoDB connected");
+ // })
+ // .catch((error) => {
+ //   console.error("❌ MongoDB connection failed:", error.message);
+ //   process.exit(1);
+ // });
+ 
 
 /* ------------------------------
    ERROR HANDLING

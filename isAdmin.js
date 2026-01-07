@@ -19,7 +19,7 @@ if (!process.env.CONNECTION_STRING) {
 //stakeholder20@techwireict.com
 //Stakeholder@techwireict.com
 //admin001@techwireict.com
-const targetEmail = "admin001@techwireict.com";
+const targetEmail = "admin002@techwireict.com";
 
 
 const makeAdmin = async () => {
