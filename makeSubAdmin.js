@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const { User } = require("./models/user");
 
 // Email of the account to make SubAdmin
-const targetEmail = "stakeholder@techwireict.com";
+const targetEmail = "executivecouncel@techwireict.com";
 
 const makeSubAdmin = async () => {
   try {
@@ -25,9 +25,9 @@ const makeSubAdmin = async () => {
 
     // Update role
     user.isAdmin = false;              // not admin
-    user.isSubAdmin = false;            // YES subadmin
+    user.isSubAdmin = true;            // YES subadmin
     user.isStaff = false;              // remove staff
-    user.isSuperStakeholder = true;   // remove stakeholder
+    user.isSuperStakeholder = false;   // remove stakeholder
 
     await user.save();
 
