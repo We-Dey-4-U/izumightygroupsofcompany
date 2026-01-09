@@ -15,7 +15,7 @@ const FormData = require("form-data");
 const taxUtil = require("../utils/taxCalculator");
 const { recordTax } = require("../services/taxLedger.service");
 
-// --- CORS Setup ---
+// --- CORS Setup ---------------
 router.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "DELETE"] }));
 
 /** Helper: Upload payslip to storage */

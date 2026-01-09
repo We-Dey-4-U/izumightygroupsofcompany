@@ -27,6 +27,11 @@ const saleSchema = new mongoose.Schema(
           default: null
         },
 
+          productName: {
+      type: String,
+      required: false // 🔴 SNAPSHOT FOR FIRS / AUDIT / QR
+    },
+
         serviceName: { type: String, default: "" },
         quantity: { type: Number, required: true },
         price: { type: Number, required: true },

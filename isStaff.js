@@ -10,7 +10,7 @@ if (!process.env.CONNECTION_STRING) {
 //ikenna.chinedu@techwireict.com
 // Emails of the accounts to make sta
 const staffEmails = [
- "aladeojebi.timilehin@techwireict.com",
+ "akhigbebenita8@gmail.com",
 
 
 ];
