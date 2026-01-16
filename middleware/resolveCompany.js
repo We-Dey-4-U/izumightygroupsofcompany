@@ -2,7 +2,7 @@ const Company = require("../models/Company");
 
 async function resolveCompany(req, res, next) {
   try {
-    // Preferred: new system
+    // Preferred: new syste
     if (req.user?.companyId) {
       req.companyId = req.user.companyId;
       return next();

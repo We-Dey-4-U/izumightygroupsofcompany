@@ -8,6 +8,9 @@ const { v4: uuidv4 } = require("uuid");
 const { auth, isStaff, isAdmin, isSubAdmin, isSuperStakeholder } = require("../middleware/auth");
 const EmployeeInfo = require("../models/EmployeeInfo");
 
+// ✅ Import sanitize middleware
+const sanitizeBody = require("../middleware/sanitize");
+
 // ----------------------
 // MULTER (Memory Storage)
 // ----------------------
@@ -60,6 +63,17 @@ router.post(
     { name: "meansOfIdImage", maxCount: 1 },
     { name: "guarantorPassport", maxCount: 1 },
     { name: "guarantorMeansOfId", maxCount: 1 },
+  ]),
+  // 🔐 Sanitize all JSON fields
+  sanitizeBody([
+    "personal",
+    "contact",
+    "nextOfKin",
+    "employment",
+    "education",
+    "bank",
+    "identification",
+    "guarantor"
   ]),
   async (req, res) => {
     try {

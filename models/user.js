@@ -15,49 +15,32 @@ const userSchema = new mongoose.Schema(
       required: true, 
       minlength: 3, 
       maxlength: 1024 
-     },
-
-     // ✅ OPTIONAL — for ecommerce users
-    company: {
-      type: String,
-      default: null,
     },
 
-    // ✅ OPTIONAL — only set when linked to CRM company
-    companyId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Company",
-      default: null,
-    },
-      // 🔥 NEW FIELD — COMPANY ENUM
-   // company: {
-   //   type: String,
-    //  enum: ["Agreeko", "Welbeg","Techwireict"],   // ⬅ ONLY allowed companies
-   //   required: true
-   // },
+    company: { type: String, default: null },
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: "Company", default: null },
 
-   //   company: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // 🔹 Link user to company
     isAdmin: { type: Boolean, default: false },
     isStaff: { type: Boolean, default: false },
-    isSuperStakeholder: { type: Boolean, default: false }, // ✅ NEW FIELD
-     isSubAdmin: { type: Boolean, default: false },
-     isSuperAdmin: { type: Boolean, default: false }, // Only superadmin can create companies
-    //  isSuperAdmin: { type: Boolean, default: false }, // Only superadmin can onboard companies
-     // 🔹 Freelancer role
+    isSuperStakeholder: { type: Boolean, default: false },
+    isSubAdmin: { type: Boolean, default: false },
+    isSuperAdmin: { type: Boolean, default: false },
     isFreelancer: { type: Boolean, default: false },
+
+    // 🔐 Account lockout fields
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
+// Check if account is locked
+userSchema.methods.isLocked = function () {
+  return this.lockUntil && this.lockUntil > Date.now();
+};
+
 const User = mongoose.model("User", userSchema);
-
 exports.User = User;
-
-
-
-
-
-
 
 
 

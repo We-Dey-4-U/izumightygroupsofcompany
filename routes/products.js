@@ -1,6 +1,7 @@
 require("dotenv").config();
 const { Product } = require("../models/product");
-const { isAdmin } = require("../middleware/auth");
+const mongoose = require("mongoose"); // ✅ ADD THIS
+const { isAdmin, auth } = require("../middleware/auth");
 const router = require("express").Router();
 const multer = require("multer");
 const axios = require("axios");
@@ -8,6 +9,13 @@ const Joi = require("joi");
 const FormData = require("form-data");
 const { v4: uuidv4 } = require("uuid");
 
+
+
+// ✅ Import sanitize middleware
+const sanitizeBody = require("../middleware/sanitize");
+
+// ---- Multer Config (Memory Storage) ----
+const upload = multer({ storage: multer.memoryStorage() });
 
 // ---- 🧠 Appwrite Connectivity Check --
 (async () => {
@@ -35,8 +43,7 @@ const { v4: uuidv4 } = require("uuid");
   }
 })();
 
-// ---- Multer Config (Memory Storage) ----
-const upload = multer({ storage: multer.memoryStorage() });
+
 
 // ---------- Helpers ----------
 const objectIdSchema = Joi.string().custom((value, helpers) => {
@@ -92,74 +99,180 @@ async function uploadToAppwrite(file) {
   }
 }
 
-// ---- CREATE PRODUCT ----
-// ---- CREATE PRODUCT ----
-// routes/products.js (create route)
+
+
 // ===============================
 // CREATE PRODUCT
 // ===============================
-router.post("/", isAdmin, upload.array("images"), async (req, res) => {
-  try {
-    const schema = Joi.object({
-      name: Joi.string().min(1).max(200).required(),
-      category: Joi.string().required(),
-      desc: Joi.string().min(1).max(3000).required(),
-      price: Joi.number().min(0).required(),
-      originalPrice: Joi.number().min(0).optional(),
-      discountPercent: Joi.number().min(0).max(100).optional(),
-      rating: Joi.number().min(1).max(5).optional(),
-      features: Joi.any(),
-    });
+router.post(
+  "/",
+    auth,
+  isAdmin,
+  upload.array("images"),
+  // ✅ Only sanitize free-text inputs (name, desc, features)
+  sanitizeBody(["name", "desc", "features"]),
+  async (req, res) => {
+     // 🧪 TEMP DEBUG — ADD HERE
+    console.log("UPLOAD USER:", req.user?._id);
+    console.log("UPLOAD COMPANY:", req.user?.companyId);
+    try {
+      const schema = Joi.object({
+        name: Joi.string().min(1).max(200).required(),
+        // ✅ Enum validation for category
+        category: Joi.string()
+          .valid(
+            "CCTV & Security",
+            "Networking Devices",
+            "Computers & Laptops",
+            "Servers & Storage",
+            "Software Solutions",
+            "Custom Software Development",
+            "Cybersecurity Tools",
+            "Digital Transformation Tools",
+            "Telecom Equipment",
+            "IT Infrastructure Solutions",
+            "Cloud & Hosting Services",
+            "IT Sales and Deployment",
+            "Inventory Solutions",
+            "Access Control Solutions",
+            "Tracking Solutions",
+            "Smart Home Automation",
+            "Power & Backup Solutions",
+            "Printers & Scanners",
+            "Men",
+            "Women",
+            "Kids",
+            "Unisex",
+            "Men Clothing",
+            "Men Shoes",
+            "Men Accessories",
+            "Women Clothing",
+            "Women Shoes",
+            "Women Accessories",
+            "Kids Clothing",
+            "Kids Shoes",
+            "Kids Accessories",
+            "Bags",
+            "Watches",
+            "Jewelry",
+            "Sportswear",
+            "Traditional Wear",
+            "Aso Ebi",
+            "Swiss Fabrics",
+            "Aso Oke",
+            "Ankara Fabrics",
+            "Lace Fabrics",
+            "George Fabrics",
+            "Voile Lace",
+            "Dry Lace",
+            "Guipure Lace",
+            "3D Head Gear",
+            "Gele",
+            "Caps & Headwear",
+            "Traditional Headwear",
+            "Wedding Fabrics",
+            "Party & Celebration Fabrics",
+            "Bridal Fabrics",
+            "Ceremonial Wear",
+            "Cereals & Grains",
+            "Legumes & Pulses",
+            "Roots & Tubers",
+            "Vegetables",
+            "Fruits",
+            "Cash Crops",
+            "Herbs & Spices",
+            "Poultry",
+            "Cattle",
+            "Goats & Sheep",
+            "Pigs",
+            "Rabbits",
+            "Livestock Feeds",
+            "Eggs",
+            "Milk & Dairy Products",
+            "Meat Products",
+            "Leather & Hides",
+            "Fish",
+            "Shrimp & Prawns",
+            "Crabs & Shellfish",
+            "Fish Feed",
+            "Aquaculture Equipment",
+            "Seeds & Seedlings",
+            "Fertilizers",
+            "Pesticides & Herbicides",
+            "Organic Farm Inputs",
+            "Animal Vaccines",
+            "Farm Tools",
+            "Farm Machinery",
+            "Irrigation Equipment",
+            "Greenhouse Equipment",
+            "Storage & Silos",
+            "Processed Foods",
+            "Packaged Grains",
+            "Flour & Starches",
+            "Oils & Extracts",
+            "All Products"
+          )
+          .required(),
+        desc: Joi.string().min(1).max(3000).required(),
+        price: Joi.number().min(0).required(),
+        originalPrice: Joi.number().min(0).optional(),
+        discountPercent: Joi.number().min(0).max(100).optional(),
+        rating: Joi.number().min(1).max(5).optional(),
+        features: Joi.any(),
+      });
 
-    const { error, value } = schema.validate(req.body, { stripUnknown: false });
-    if (error) return res.status(400).json({ message: error.details[0].message });
+      const { error, value } = schema.validate(req.body, { stripUnknown: false });
+      if (error) return res.status(400).json({ message: error.details[0].message });
 
-    if (!req.files?.length) {
-      return res.status(400).json({ message: "No images uploaded" });
-    }
+      if (!req.files?.length)
+        return res.status(400).json({ message: "No images uploaded" });
 
-    // ---- Features normalization (unchanged) ----
-    let parsedFeatures = [];
-    if (value.features) {
-      if (Array.isArray(value.features)) {
-        parsedFeatures = value.features.map(String).map(f => f.trim()).filter(Boolean);
-      } else {
-        try {
-          const maybe = JSON.parse(value.features);
-          parsedFeatures = Array.isArray(maybe)
-            ? maybe.map(String).map(f => f.trim()).filter(Boolean)
-            : String(value.features).split(",").map(f => f.trim()).filter(Boolean);
-        } catch {
-          parsedFeatures = String(value.features).split(",").map(f => f.trim()).filter(Boolean);
+      // ---- Features normalization ----
+      let parsedFeatures = [];
+      if (value.features) {
+        if (Array.isArray(value.features)) {
+          parsedFeatures = value.features.map(String).map(f => f.trim()).filter(Boolean);
+        } else {
+          try {
+            const maybe = JSON.parse(value.features);
+            parsedFeatures = Array.isArray(maybe)
+              ? maybe.map(String).map(f => f.trim()).filter(Boolean)
+              : String(value.features).split(",").map(f => f.trim()).filter(Boolean);
+          } catch {
+            parsedFeatures = String(value.features).split(",").map(f => f.trim()).filter(Boolean);
+          }
         }
       }
-    }
 
-    const images = await Promise.all(req.files.map(uploadToAppwrite));
+      const images = await Promise.all(req.files.map(uploadToAppwrite));
 
-    const product = new Product({
-      companyId: req.user.companyId,
-      createdBy: req.user._id,
-      name: value.name,
-      category: value.category,
-      desc: value.desc,
-      price: Number(value.price),
-      originalPrice: Number(value.originalPrice || 0),
-      rating: Number(value.rating || 0),
-      discountPercent: Number(value.discountPercent || 0),
-      features: parsedFeatures,
-      images,
-    });
+      const companyId = req.user.companyId;
 
-    const saved = await product.save();
-    res.status(201).json(saved);
+if (!companyId) {
+  return res.status(400).json({ message: "Company not resolved for user" });
+}
 
-  } catch (error) {
-    console.error("❌ [CREATE PRODUCT]", error.message);
-    res.status(500).json({ message: error.message });
-  }
+const product = new Product({
+  companyId,
+  createdBy: req.user._id,
+  name: value.name,
+  category: value.category,
+  desc: value.desc,
+  price: Number(value.price),
+  originalPrice: Number(value.originalPrice || 0),
+  rating: Number(value.rating || 0),
+  discountPercent: Number(value.discountPercent || 0),
+  features: parsedFeatures,
+  images,
 });
 
+      const saved = await product.save();
+      res.status(201).json(saved);
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
 
 
 
@@ -200,59 +313,62 @@ router.post("/:id/wishlist", async (req, res) => {
 // ---- UPDATE PRODUCT ----
 // ===============================
 // UPDATE PRODUCT
-// ===============================
-router.put("/:id", isAdmin, upload.array("images"), async (req, res) => {
-  const idCheck = objectIdSchema.validate(req.params.id);
-  if (idCheck.error) return res.status(400).json({ message: "Invalid product ID" });
+// ---- UPDATE PRODUCT ----
+router.put(
+  "/:id",
+   auth,
+  isAdmin,
+  upload.array("images"),
+  sanitizeBody(["name", "category", "desc", "features"]),
+  async (req, res) => {
+    const idCheck = objectIdSchema.validate(req.params.id);
+    if (idCheck.error) return res.status(400).json({ message: "Invalid product ID" });
 
-  try {
-    const product = await Product.findOne({ _id: req.params.id, companyId: req.user.companyId });
-    if (!product) return res.status(403).json({ message: "Not authorized" });
+    try {
+      const product = await Product.findOne({ _id: req.params.id, companyId: req.user.companyId });
+      if (!product) return res.status(403).json({ message: "Not authorized" });
 
-    const schema = Joi.object({
-      name: Joi.string().min(1).max(200),
-      category: Joi.string(),
-      desc: Joi.string().min(1).max(3000),
-      price: Joi.number().min(0),
-      originalPrice: Joi.number().min(0),
-      discountPercent: Joi.number().min(0).max(100),
-      rating: Joi.number().min(1).max(5),
-      features: Joi.any(),
-    });
+      const schema = Joi.object({
+        name: Joi.string().min(1).max(200),
+        category: Joi.string(),
+        desc: Joi.string().min(1).max(3000),
+        price: Joi.number().min(0),
+        originalPrice: Joi.number().min(0),
+        discountPercent: Joi.number().min(0).max(100),
+        rating: Joi.number().min(1).max(5),
+        features: Joi.any(),
+      });
 
-    const { error, value } = schema.validate(req.body, { stripUnknown: false });
-    if (error) return res.status(400).json({ message: error.details[0].message });
+      const { error, value } = schema.validate(req.body, { stripUnknown: false });
+      if (error) return res.status(400).json({ message: error.details[0].message });
 
-    if (req.files?.length) {
-      product.images = await Promise.all(req.files.map(uploadToAppwrite));
+      if (req.files?.length) product.images = await Promise.all(req.files.map(uploadToAppwrite));
+      Object.assign(product, value);
+      const updated = await product.save();
+      res.status(200).json(updated);
+    } catch (error) {
+      res.status(500).json({ message: error.message });
     }
-
-    Object.assign(product, value);
-    const updated = await product.save();
-    res.status(200).json(updated);
-
-  } catch (error) {
-    res.status(500).json({ message: error.message });
   }
-});
-
-
-
+);
 
 // ---- DELETE PRODUCT ----
-router.delete("/:id", isAdmin, async (req, res) => {
+// ---- DELETE PRODUCT ----
+router.delete("/:id", auth, isAdmin, async (req, res) => {
   try {
     const product = await Product.findOne({ _id: req.params.id, companyId: req.user.companyId });
     if (!product) return res.status(403).json({ message: "Not authorized to delete this product" });
 
-    if (product.images && Array.isArray(product.images)) {
+    if (Array.isArray(product.images)) {
       for (const image of product.images) {
         if (image.id) {
           try {
-            await axios.delete(
-              `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${image.id}`,
-              { headers: { "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID, "X-Appwrite-Key": process.env.APPWRITE_API_KEY } }
-            );
+            await axios.delete(`${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${image.id}`, {
+              headers: {
+                "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+                "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
+              },
+            });
           } catch {}
         }
       }
@@ -266,31 +382,23 @@ router.delete("/:id", isAdmin, async (req, res) => {
 });
 
 // ---- GET ALL PRODUCTS ----
+// ---- GET ALL PRODUCTS (PUBLIC) ----
 router.get("/", async (req, res) => {
-  console.log("📥 [GET /products] Fetch all products request");
   try {
-    // Nested population: get uploader's company name
     const products = await Product.find().populate({
       path: "createdBy",
       select: "companyId",
-      populate: { path: "companyId", select: "name" } // populate company name
+      populate: { path: "companyId", select: "name" }
     });
 
-    // Transform response to include uploaderCompanyName
-    const response = products.map(product => ({
-      ...product.toObject(),
-      uploaderCompanyName: product.createdBy?.companyId?.name || "Unknown"
+    const response = products.map(p => ({
+      ...p.toObject(),
+      companyId: String(p.companyId),
+      uploaderCompanyName: p.createdBy?.companyId?.name || "Unknown"
     }));
-
-    console.log(`✅ [GET /products] Found ${products.length} products`);
-
-    // Log how many have discount
-    const discountedCount = products.filter(p => Number(p.discountPercent) > 0).length;
-    console.log(`💰 Discounted products count: ${discountedCount}`);
 
     res.status(200).json(response);
   } catch (error) {
-    console.error("❌ [GET /products] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
@@ -299,86 +407,88 @@ router.get("/", async (req, res) => {
 
 // Admin product list (table with delete/update buttons)
 // ---- GET ALL PRODUCTS FOR ADMIN (COMPANY ISOLATED) ----
-router.get("/admin", isAdmin, async (req, res) => {
+// ===============================
+// GET ALL PRODUCTS FOR ADMIN (COMPANY ISOLATED)
+// ===============================
+router.get("/admin", auth, isAdmin, async (req, res) => {
   try {
-    const products = await Product.find({ companyId: req.user.companyId })
-      .populate({
-        path: "createdBy",
-        select: "companyId",
-        populate: { path: "companyId", select: "name" } // nested populate for company name
-      });
+    const companyId = req.user.companyId;
 
-    // Map products to include uploaderCompanyName directly
-    const result = products.map(p => ({
+    if (!companyId) {
+      return res.status(400).json({
+        message: "Company not resolved for user",
+      });
+    }
+
+    const products = await Product.find({ companyId }).populate({
+      path: "createdBy",
+      select: "companyId",
+      populate: {
+        path: "companyId",
+        select: "name",
+      },
+    });
+
+    const result = products.map((p) => ({
       ...p.toObject(),
+      companyId: String(p.companyId),
+      uploaderCompanyName: p.createdBy?.companyId?.name || "Unknown",
+    }));
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Admin products fetch error:", error);
+    res.status(500).json({ message: "Failed to fetch products" });
+  }
+});
+
+
+// ---- GET PRODUCTS BY CATEGORY ----
+// ---- GET PRODUCTS BY CATEGORY ----
+router.get("/category/:category", async (req, res) => {
+  try {
+    const products = await Product.find({ category: req.params.category }).populate({
+      path: "createdBy",
+      select: "companyId",
+      populate: { path: "companyId", select: "name" }
+    });
+
+    const response = products.map(p => ({
+      ...p.toObject(),
+      companyId: String(p.companyId),
       uploaderCompanyName: p.createdBy?.companyId?.name || "Unknown"
     }));
 
-    console.log(`✅ [GET /products/admin] Found ${products.length} products for company ${req.user.companyId}`);
-    res.status(200).json(result);
+    res.status(200).json(response);
   } catch (error) {
-    console.error("❌ [GET /products/admin] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
 
 
 // ---- GET SINGLE PRODUCT ----
+// ---- GET SINGLE PRODUCT ----
 router.get("/:id", async (req, res) => {
-  console.log("📥 [GET /products/:id] Fetch single product request:", req.params.id);
   try {
-    // Nested population: get uploader's company name
-    const product = await Product.findById(req.params.id)
-      .populate({
-        path: "createdBy",
-        select: "companyId",
-        populate: { path: "companyId", select: "name" } // populate the company name
-      });
+    const product = await Product.findById(req.params.id).populate({
+      path: "createdBy",
+      select: "companyId",
+      populate: { path: "companyId", select: "name" }
+    });
 
-    if (!product) {
-      console.warn("⚠️ [GET /products/:id] Product not found");
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (!product) return res.status(404).json({ message: "Product not found" });
 
-    // Add uploaderCompanyName directly to the response
     const response = {
       ...product.toObject(),
+      companyId: String(product.companyId),
       uploaderCompanyName: product.createdBy?.companyId?.name || "Unknown"
     };
 
-    console.log("✅ [GET /products/:id] Product found:", product._id);
     res.status(200).json(response);
   } catch (error) {
-    console.error("❌ [GET /products/:id] Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 });
-
-// ---- GET PRODUCTS BY CATEGORY ----
-router.get("/category/:category", async (req, res) => {
-  console.log("📥 [GET /products/category/:category] Fetch products for category:", req.params.category);
-  try {
-    // Nested population: get uploader's company name
-    const products = await Product.find({ category: req.params.category }).populate({
-      path: "createdBy",
-      select: "companyId",
-      populate: { path: "companyId", select: "name" } // populate company name
-    });
-
-    // Transform response to include uploaderCompanyName
-    const response = products.map(product => ({
-      ...product.toObject(),
-      uploaderCompanyName: product.createdBy?.companyId?.name || "Unknown"
-    }));
-
-    console.log(`✅ [GET /products/category/:category] Found ${products.length} products`);
-    res.status(200).json(response);
-  } catch (error) {
-    console.error("❌ [GET /products/category/:category] Error:", error.message);
-    res.status(500).json({ message: error.message });
-  }
-});
-
 
 
 

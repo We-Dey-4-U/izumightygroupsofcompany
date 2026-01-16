@@ -37,9 +37,9 @@ const userRoutes = require("./routes/users");
 
 // Security middleware
 const { apiKeyMiddleware, createRateLimiter } = require("./middleware/security");
+const { auth } = require("./middleware/auth");
 
 const app = express();
-
 
 /* =====================================================
    MONGODB CONNECTION (MUST COME FIRST)
@@ -61,6 +61,11 @@ mongoose
     console.error("❌ MongoDB connection failed:", error.message);
     process.exit(1);
   });
+
+/* ------------------------------
+   DISABLE EXPRESS FINGERPRINTING
+------------------------------ */
+app.disable("x-powered-by");
 
 /* ------------------------------
    SECURITY HEADERS
@@ -85,12 +90,13 @@ if (process.env.NODE_ENV === "production") {
 }
 
 /* ------------------------------
-   CORS
+   CORS (ENV-BASED, SAFE)
 ------------------------------ */
 app.use(
   cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    origin: process.env.ALLOWED_ORIGINS?.split(",") || "*",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
   })
 );
@@ -101,7 +107,7 @@ app.use(
 app.use((req, res, next) => {
   const ua = (req.headers["user-agent"] || "").toLowerCase();
   const bots = ["curl", "wget", "python-requests", "scrapy"];
-  if (bots.some(bot => ua.includes(bot))) {
+  if (bots.some((bot) => ua.includes(bot))) {
     return res.status(403).json({ message: "Bots are not allowed" });
   }
   next();
@@ -117,8 +123,8 @@ const defaultLimiter = createRateLimiter({
 });
 
 const productLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000,                 // allow more requests for dev
   message: "Too many requests to products, slow down",
 });
 
@@ -129,7 +135,7 @@ app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
 /* ------------------------------
-   LOG REQUESTS
+   REQUEST LOGGING
 ------------------------------ */
 app.use((req, res, next) => {
   console.log(`Request: ${req.method} ${req.url}`);
@@ -137,17 +143,61 @@ app.use((req, res, next) => {
 });
 
 /* ------------------------------
-   STATIC FOLDER
+   GLOBAL AUDIT LOGGING
 ------------------------------ */
-app.use("/uploads", express.static("uploads"));
+app.use((req, res, next) => {
+  res.on("finish", () => {
+    if (req.user) {
+      console.log(
+        `[AUDIT] ${req.user._id} | ${req.method} ${req.originalUrl} | ${res.statusCode}`
+      );
+    }
+  });
+  next();
+});
+
+/* ------------------------------
+   SECURE STATIC /uploads
+------------------------------ */
+app.use(
+  "/uploads",
+  auth, // require auth for uploads
+  express.static("uploads", {
+    dotfiles: "deny",
+    maxAge: "1d",
+  })
+);
 
 /* ------------------------------
    PUBLIC ROUTES
 ------------------------------ */
 app.use("/api/register", defaultLimiter, register);
 app.use("/api/login", defaultLimiter, login);
-app.use("/api/products", productLimiter, productsRoute);
+
+// Products routes (public access for guests)
+if (process.env.NODE_ENV === "production") {
+  app.use("/api/products", productLimiter, productsRoute); // guests can fetch products
+} else {
+  app.use("/api/products", productsRoute); // no limiter for dev
+}
+
+// Legacy or fallback route
 app.get("/products", productLimiter, (req, res) => res.send(products));
+
+/* ------------------------------
+   GLOBAL AUTH GATE (AUTOMATED TENANT GUARD)
+   — only applies to non-public routes
+------------------------------ */
+app.use("/api", (req, res, next) => {
+  // List of prefixes that should remain public
+  const publicPrefixes = ["/api/login", "/api/register", "/api/products"];
+
+  // If request path starts with any public prefix, skip auth
+  if (publicPrefixes.some(prefix => req.path.startsWith(prefix))) return next();
+
+  // All other routes require authentication
+  return auth(req, res, next);
+});
 
 /* ------------------------------
    AUTHENTICATED / PROTECTED ROUTES
@@ -169,13 +219,11 @@ app.use("/api/firs-export", firsExportRoutes);
 app.use("/api/company", companyRoutes);
 app.use("/api/tax-ledger", taxLedgerRoutes);
 app.use("/api/reports", reportsRoute);
-//app.use("/api/users", users);
 app.use("/api/expenses", expensesRoute);
 app.use("/api/safe-fetch", safeFetchRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/finance", financeRoutes);
-
 /* ------------------------------
    BASE ROUTES
 ------------------------------ */
@@ -184,26 +232,11 @@ app.get("/", (req, res) => {
 });
 
 /* ------------------------------
-   MONGODB CONNECTION
+   GLOBAL 404 HANDLER
 ------------------------------ */
-//mongoose.set("strictQuery", true);
-
-//mongoose
- // .connect(process.env.CONNECTION_STRING, {
- //   useNewUrlParser: true,
- //   useUnifiedTopology: true,
- //   maxPoolSize: 10,
- //   serverSelectionTimeoutMS: 5000,
- //   socketTimeoutMS: 45000,
-//  })
- // .then(() => {
- //   console.log("✅ MongoDB connected");
- // })
- // .catch((error) => {
- //   console.error("❌ MongoDB connection failed:", error.message);
- //   process.exit(1);
- // });
- 
+app.use((req, res) => {
+  res.status(404).json({ message: "Resource not found" });
+});
 
 /* ------------------------------
    ERROR HANDLING

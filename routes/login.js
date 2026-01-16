@@ -3,6 +3,7 @@ const { User } = require("../models/user");
 const Joi = require("joi");
 const express = require("express");
 const generateAuthToken = require("../utils/generateAuthToken");
+const generateRefreshToken = require("../utils/generateRefreshToken");
 const router = express.Router();
 
 // ---------------------------
@@ -16,24 +17,44 @@ router.post("/", async (req, res) => {
       password: Joi.string().min(6).max(200).required(),
     });
 
-    // Validate input
     const { error } = schema.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message });
 
     const { email, password } = req.body;
-
-    // Find user
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: "Invalid email or password" });
 
+    // 🔐 Check account lockout
+    if (user.isLocked()) {
+      return res
+        .status(423)
+        .json({ message: "Account locked due to multiple failed login attempts. Try later." });
+    }
+
     // Check password
     const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) return res.status(400).json({ message: "Invalid email or password" });
+    if (!validPassword) {
+      // Increment failed attempts
+      user.failedLoginAttempts += 1;
 
-    // Generate token (include company info)
+      // Lock account after 5 failed attempts
+      if (user.failedLoginAttempts >= 5) {
+        user.lockUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes lock
+      }
+
+      await user.save();
+      return res.status(400).json({ message: "Invalid email or password" });
+    }
+
+    // Reset failed attempts on successful login
+    user.failedLoginAttempts = 0;
+    user.lockUntil = null;
+    await user.save();
+
+    // Generate tokens
     const token = generateAuthToken(user);
+    const refreshToken = generateRefreshToken(user);
 
-    // Respond with user info
     res.status(200).json({
       _id: user._id,
       name: user.name,
@@ -45,6 +66,7 @@ router.post("/", async (req, res) => {
       isSuperAdmin: user.isSuperAdmin,
       company: user.company,
       token,
+      refreshToken,
     });
   } catch (err) {
     console.error("❌ Login error:", err);

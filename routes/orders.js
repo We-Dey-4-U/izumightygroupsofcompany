@@ -11,6 +11,10 @@ const moment = require("moment");
 const Joi = require("joi");
 const mongoose = require("mongoose");
 
+// ✅ Import sanitize middleware
+const sanitizeBody = require("../middleware/sanitize");
+
+
 // ===============================
 // Helpers
 // ===============================
@@ -41,67 +45,101 @@ const upload = multer({ storage });
 // =======================================================
 // CREATE ORDER (BANK TRANSFER) — COMPANY ISOLATED ✅
 // =======================================================
-router.post("/bank-transfer", auth, upload.single("receipt"), async (req, res) => {
-  try {
-    // ---------- Validation ----------
-    const schema = Joi.object({
-      userId: objectIdSchema.required(),
-      products: Joi.string().required(), // JSON string (multipart)
-      subtotal: Joi.number().min(0).required(),
-      total: Joi.number().min(0).required(),
-      shipping: Joi.string().required(), // JSON string
-      paymentMethod: Joi.string().default("bankTransfer"),
-    });
-
-    const { error, value } = schema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
-
-    const { userId, products, subtotal, total, shipping, paymentMethod } = value;
-
-    const parsedProducts = JSON.parse(products);
-
-    // 🔒 Fetch actual products from DB
-    const productIds = parsedProducts.map(p => p.productId);
-    const dbProducts = await Product.find({ _id: { $in: productIds } });
-
-    if (!dbProducts.length) {
-      return res.status(400).json({ message: "Invalid products" });
-    }
-
-    // 🔒 Enforce ONE COMPANY per order
-    const companyId = dbProducts[0].companyId.toString();
-    const hasMixedCompany = dbProducts.some(
-      p => p.companyId.toString() !== companyId
-    );
-
-    if (hasMixedCompany) {
-      return res.status(400).json({
-        message: "Products from multiple companies are not allowed in one order",
+// =======================================================
+// CREATE ORDER (BANK TRANSFER) — COMPANY ISOLATED ✅
+// =======================================================
+router.post(
+  "/bank-transfer",
+  auth,
+  upload.single("receipt"),
+  // ✅ Sanitize shipping fields
+  sanitizeBody([
+    "shipping.address",
+    "shipping.city",
+    "shipping.state",
+    "shipping.zip",
+    "shipping.country",
+  ]),
+  async (req, res) => {
+    try {
+      // ---------- Validation ----------
+      const schema = Joi.object({
+        userId: objectIdSchema.required(),
+        products: Joi.string().required(), // JSON string (multipart)
+        subtotal: Joi.number().min(0).required(),
+        total: Joi.number().min(0).required(),
+        shipping: Joi.string().required(), // JSON string
+        paymentMethod: Joi.string().default("bankTransfer"),
       });
+
+      const { error, value } = schema.validate(req.body);
+      if (error)
+        return res.status(400).json({ message: error.details[0].message });
+
+      const { userId, products, subtotal, total, shipping, paymentMethod } = value;
+      const parsedProducts = JSON.parse(products);
+
+      // 🔒 Fetch actual products from DB
+      const productIds = parsedProducts.map((p) => p.productId);
+      const dbProducts = await Product.find({ _id: { $in: productIds } });
+
+      if (!dbProducts.length) {
+        return res.status(400).json({ message: "Invalid products" });
+      }
+
+      // 🔒 Enforce ONE COMPANY per order
+      const companyId = dbProducts[0].companyId.toString();
+      const hasMixedCompany = dbProducts.some(
+        (p) => p.companyId.toString() !== companyId
+      );
+      if (hasMixedCompany) {
+        return res.status(400).json({
+          message: "Products from multiple companies are not allowed in one order",
+        });
+      }
+
+      // ✅ Create order
+      const order = new Order({
+        userId,
+        company: companyId,
+        products: parsedProducts,
+        subtotal: Number(subtotal),
+        total: Number(total),
+        shipping: JSON.parse(shipping),
+        paymentMethod,
+        payment_status: "awaiting_payment",
+        receipt: req.file ? req.file.path : "",
+      });
+
+      const savedOrder = await order.save();
+
+      // 🔄 Optional: Reduce product stock
+      for (const item of parsedProducts) {
+        await Product.findByIdAndUpdate(item.productId, {
+          $inc: { stock: -item.quantity },
+        });
+      }
+
+      // ✅ Populate order for frontend
+      const populatedOrder = await Order.findById(savedOrder._id)
+        .populate({
+          path: "products.productId",
+          populate: {
+            path: "createdBy",
+            select: "companyId",
+            populate: { path: "companyId", select: "name" },
+          },
+        })
+        .populate("company", "name")
+        .populate("userId", "email name");
+
+      res.status(201).json(populatedOrder);
+    } catch (err) {
+      console.error("❌ Bank transfer order error:", err);
+      res.status(500).json({ message: err.message });
     }
-
-    // ✅ Create order (UNCHANGED LOGIC)
-    const order = new Order({
-      userId,
-      company: companyId,
-      products: parsedProducts,
-      subtotal: Number(subtotal),
-      total: Number(total),
-      shipping: JSON.parse(shipping),
-      paymentMethod,
-      payment_status: "awaiting_payment",
-      receipt: req.file ? req.file.path : "",
-    });
-
-    const savedOrder = await order.save();
-    res.status(201).json(savedOrder);
-
-  } catch (err) {
-    console.error("❌ Bank transfer order error:", err);
-    res.status(500).json({ message: err.message });
   }
-});
-
+);
 // =======================================================
 // CREATE ORDER (OTHER PAYMENT FLOWS) — SAFE DEFAULT
 // =======================================================
@@ -253,7 +291,7 @@ router.get("/find/:userId", isUser, async (req, res) => {
   }
 });
 
-// =======================================================
+// ======================================================
 // GET COMPANY ORDERS
 // =======================================================
 router.get("/", isAdmin, async (req, res) => {
