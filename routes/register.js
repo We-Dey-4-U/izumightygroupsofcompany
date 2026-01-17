@@ -14,18 +14,29 @@ const router = express.Router();
 // USER REGISTRATION ROUTE
 // ---------------------------
 router.post(
-  "/", 
+  "/",
   // 🔐 Sanitize user input fields
   sanitizeBody(["name"]),
   async (req, res) => {
+    // ✅ Always return JSON (prevents white screen)
+    res.setHeader("Content-Type", "application/json");
     console.log("📌 [User Registration] Received request");
 
     try {
       // ---------------------------
+      // Step 0: Guard against empty body (MUST COME FIRST)
+      // ---------------------------
+      if (!req.body || Object.keys(req.body).length === 0) {
+        console.warn("⚠ Empty request body");
+        return res.status(400).json({ message: "Request body is required" });
+      }
+
+      // ---------------------------
       // Step 1: Validate user input
       // ---------------------------
       console.log("🔹 Validating user input...");
-      const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*[@#$%^&*])[A-Za-z\d@#$%^&*]{8,}$/;
+      const PASSWORD_REGEX =
+        /^(?=.*[A-Z])(?=.*[@#$%^&*])[A-Za-z\d@#$%^&*]{8,}$/;
 
       const schema = Joi.object({
         name: Joi.string().min(3).max(30).required(),
@@ -50,10 +61,13 @@ router.post(
       const normalizedEmail = email.toLowerCase().trim();
 
       // ---------------------------
-      // Step 2: Check if user exists
+      // Step 2: Check if user exists (with timeout)
       // ---------------------------
       console.log("🔹 Checking if user already exists...");
-      const existingUser = await User.findOne({ email: normalizedEmail });
+      const existingUser = await User.findOne({
+        email: normalizedEmail,
+      }).maxTimeMS(8000);
+
       if (existingUser) {
         console.warn("⚠ User already exists:", normalizedEmail);
         return res.status(400).json({ message: "User already exists." });
@@ -69,13 +83,16 @@ router.post(
       if (companyCode) {
         console.log("🔹 Checking company code:", companyCode);
         try {
-          // Increase maxTimeMS for production in case of slow queries
-          companyDoc = await Company.findOne({ code: Number(companyCode) }).maxTimeMS(10000);
+          companyDoc = await Company.findOne({
+            code: Number(companyCode),
+          }).maxTimeMS(10000);
+
           if (!companyDoc) {
             console.warn("⚠ Company not found:", companyCode);
-            return res
-              .status(400)
-              .json({ message: "Company not found. Please contact your administrator." });
+            return res.status(400).json({
+              message:
+                "Company not found. Please contact your administrator.",
+            });
           }
 
           companyName = companyDoc.name;
@@ -96,6 +113,7 @@ router.post(
         password, // will hash below
         company: companyName,
         companyId,
+        authProvider: "local", // ✅ important for Google/local separation
       });
 
       // ---------------------------
@@ -103,7 +121,7 @@ router.post(
       // ---------------------------
       console.log("🔹 Hashing password...");
       try {
-        const salt = await bcrypt.genSalt(10); // stronger salt
+        const salt = await bcrypt.genSalt(10);
         newUser.password = await bcrypt.hash(password, salt);
       } catch (err) {
         console.error("❌ Password hashing failed:", err);
@@ -119,7 +137,9 @@ router.post(
       } catch (err) {
         console.error("❌ Saving user failed:", err);
         if (err.code === 11000) {
-          return res.status(400).json({ message: "User with this email already exists" });
+          return res
+            .status(400)
+            .json({ message: "User with this email already exists" });
         }
         return res.status(500).json({ message: "Failed to save user" });
       }
@@ -131,7 +151,7 @@ router.post(
       const token = generateAuthToken(newUser);
 
       console.log("✅ User registered successfully:", newUser._id);
-      res.status(201).json({
+      return res.status(201).json({
         _id: newUser._id,
         name: newUser.name,
         email: newUser.email,
@@ -143,10 +163,9 @@ router.post(
         isSubAdmin: newUser.isSubAdmin,
         token,
       });
-
     } catch (err) {
       console.error("❌ Registration route error:", err);
-      res.status(500).json({ message: "Server error" });
+      return res.status(500).json({ message: "Server error" });
     }
   }
 );

@@ -6,6 +6,8 @@ const prerender = require("prerender-node");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
+const forgotPasswordRoutes = require("./routes/forgotPassword");
+const googleAuthRoutes = require("./routes/googleAuth");
 // Routes
 const financeRoutes = require("./routes/finance");
 const invoiceRoutes = require("./routes/invoice");
@@ -171,8 +173,11 @@ app.use(
 /* ------------------------------
    PUBLIC ROUTES
 ------------------------------ */
-app.use("/api/register", defaultLimiter, register);
+//app.use("/api/register", defaultLimiter, register);
+app.use("/api/register", register);
 app.use("/api/login", defaultLimiter, login);
+app.use("/api/forgot-password", forgotPasswordRoutes);
+app.use("/api/google", googleAuthRoutes);
 
 // Products routes (public access for guests)
 if (process.env.NODE_ENV === "production") {

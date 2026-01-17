@@ -30,6 +30,11 @@ const userSchema = new mongoose.Schema(
     // 🔐 Account lockout fields
     failedLoginAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date, default: null },
+
+    
+    // 🔑 Reset password fields
+    resetPasswordToken: { type: String, default: null },
+    resetPasswordExpires: { type: Date, default: null },
   },
   { timestamps: true }
 );
