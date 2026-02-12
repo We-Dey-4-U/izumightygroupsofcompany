@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
   {
-    companyId: { // 🔹 COMPANY ISOLATION
+    companyId: { // 🔹 COMPANY ISOLATION net
       type: mongoose.Schema.Types.ObjectId,
       ref: "Company",
       required: true,
