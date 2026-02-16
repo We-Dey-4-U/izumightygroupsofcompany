@@ -117,24 +117,33 @@ router.post(
   upload.single("logo"),
   rebuildBank, // 🔥 MUST BE BEFORE VALIDATION
   [
-    body("name").trim().notEmpty().withMessage("Company name is required"),
-    body("rcNumber").trim().notEmpty().withMessage("RC Number is required"),
-    body("tin").trim().notEmpty().withMessage("TIN is required"),
-    body("state").optional().trim(),
-    body("phone")
-      .trim()
-      .notEmpty()
-      .withMessage("Phone number is required")
-      .isLength({ min: 10 }),
-    body("isVATRegistered").optional().isBoolean(),
-    body("bank").exists().withMessage("Bank details are required"),
-    body("bank.bankName").notEmpty().withMessage("Bank name is required"),
-    body("bank.accountNumber")
-      .isNumeric()
-      .isLength({ min: 10, max: 10 })
-      .withMessage("Account number must be 10 digits"),
-    body("bank.accountName").notEmpty().withMessage("Account name is required"),
-  ],
+  body("name").trim().notEmpty().withMessage("Company name is required"),
+
+  body("rcNumber").trim().notEmpty().withMessage("RC Number is required"),
+
+  body("tin").trim().notEmpty().withMessage("TIN is required"),
+
+  body("state").optional().trim(),
+
+  body("phone")
+    .trim()
+    .notEmpty()
+    .matches(/^[0-9+\-\s]{1,20}$/)
+    .withMessage("Invalid phone number"),
+
+  body("isVATRegistered").optional().isBoolean(),
+
+  body("bank").isObject().withMessage("Bank details required"),
+
+  body("bank.bankName").notEmpty().withMessage("Bank name required"),
+
+  body("bank.accountNumber")
+    .trim()
+    .matches(/^[0-9]{1,20}$/)
+    .withMessage("Account number must be 1–20 digits"),
+
+  body("bank.accountName").notEmpty().withMessage("Account name required"),
+],
   async (req, res) => {
     console.log("🚀 [CREATE COMPANY] Incoming request");
     console.log("📦 req.body:", req.body);
@@ -192,10 +201,14 @@ router.post(
    📄 GET ALL COMPANIES
 ====================================================== */
 router.get("/", auth, isSuperAdmin, async (req, res) => {
-  const companies = await Company.find();
-  res.json(companies);
+  try {
+    const companies = await Company.find();
+    res.json(companies);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
 });
-
 /* ======================================================
    🧾 GET COMPANY BY PRODUCTS
 ====================================================== */
