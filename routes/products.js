@@ -383,24 +383,32 @@ router.delete("/:id", auth, isAdmin, async (req, res) => {
 
 // ---- GET ALL PRODUCTS ----
 // ---- GET ALL PRODUCTS (PUBLIC) ----
-router.get("/", async (req, res) => {
-  try {
-    const products = await Product.find().populate({
-      path: "createdBy",
-      select: "companyId",
-      populate: { path: "companyId", select: "name" }
-    });
+router.get("/", auth, async (req, res) => {
+  const companyId = req.user.companyId;
 
-    const response = products.map(p => ({
-      ...p.toObject(),
-      companyId: String(p.companyId),
-      uploaderCompanyName: p.createdBy?.companyId?.name || "Unknown"
-    }));
+  const products = await Product.find({ companyId }).populate({
+    path: "createdBy",
+    select: "companyId",
+    populate: { path: "companyId", select: "name" }
+  });
 
-    res.status(200).json(response);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  res.json(products);
+});
+
+
+
+
+router.get("/superadmin/all", auth, async (req, res) => {
+  if (!req.user.isSuperAdmin)
+    return res.status(403).json({ message: "Access denied" });
+
+  const products = await Product.find().populate({
+    path: "createdBy",
+    select: "companyId",
+    populate: { path: "companyId", select: "name" }
+  });
+
+  res.json(products);
 });
 
 

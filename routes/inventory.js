@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { auth, isAdmin, isSubAdmin, isSuperStakeholder } = require("../middleware/auth");
-
+const ProductEditRequest = require("../models/ProductEditRequest");
 const InventoryProduct = require("../models/InventoryProduct");
 const StockMovement = require("../models/StockMovement");
 
@@ -203,6 +203,124 @@ router.patch("/update-sold/:productId", auth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+// -------------------------------------------------
+// REQUEST PRODUCT EDIT (ADMIN ONLY)
+// -------------------------------------------------
+router.post("/request-edit/:productId", auth, async (req, res) => {
+  if (!req.user.isAdmin) {
+    return res.status(403).json({ message: "Only admins can request edits" });
+  }
+
+  const product = await InventoryProduct.findOne({
+    _id: req.params.productId,
+    companyId: req.user.companyId
+  });
+
+  if (!product) {
+    return res.status(404).json({ message: "Product not found" });
+  }
+
+  const request = await ProductEditRequest.create({
+    product: product._id,
+    companyId: req.user.companyId,
+    requestedChanges: req.body,
+    requestedBy: req.user._id
+  });
+
+  res.json({ message: "Edit request submitted", request });
+});
+
+
+
+
+// -------------------------------------------------
+// APPROVE EDIT
+// -------------------------------------------------
+router.patch("/approve-edit/:requestId", auth, async (req, res) => {
+  if (!req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Only SuperAdmin can approve" });
+  }
+
+  const request = await ProductEditRequest.findById(req.params.requestId)
+    .populate("product");
+
+  if (!request || request.status !== "PENDING") {
+    return res.status(400).json({ message: "Invalid request" });
+  }
+
+  Object.assign(request.product, request.requestedChanges);
+  await request.product.save();
+
+  request.status = "APPROVED";
+  request.approvedBy = req.user._id;
+  request.approvedAt = new Date();
+  await request.save();
+
+  res.json({ message: "Approved successfully" });
+});
+
+
+
+
+
+router.patch("/reject-edit/:requestId", auth, async (req, res) => {
+  if (!req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Only SuperAdmin can reject" });
+  }
+
+  const request = await ProductEditRequest.findById(req.params.requestId);
+
+  if (!request) {
+    return res.status(404).json({ message: "Request not found" });
+  }
+
+  request.status = "REJECTED";
+  await request.save();
+
+  res.json({ message: "Request rejected" });
+});
+
+
+
+
+router.get("/pending-requests", auth, async (req, res) => {
+  if (!req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  const requests = await ProductEditRequest.find({
+    companyId: req.user.companyId,
+    status: "PENDING"
+  })
+  .populate("product")
+  .populate("requestedBy", "name email")
+  .sort({ createdAt: -1 });
+
+  res.json(requests);
+});
+
+
+
+
+
+
+
+
+
+
 
 
 // -------------------------------------------------

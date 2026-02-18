@@ -13,6 +13,7 @@ const generateSaleId = () => `SALE-${Math.floor(100000 + Math.random() * 900000)
 // Generate Invoice ID
 const generateInvoiceId = () => `INV-${Math.floor(100000 + Math.random() * 900000)}`;
 
+
 // ======================================================
 // CREATE A NEW SALE (FIRS-COMPLIANT)
 // ======================================================
@@ -44,32 +45,45 @@ router.post("/create", auth, async (req, res) => {
     for (const item of items) {
       if (item.type === "product") {
         const product = await InventoryProduct.findById(item.productId);
-        if (!product) return res.status(404).json({ message: `Product not found: ${item.productId}` });
+        if (!product)
+          return res.status(404).json({ message: `Product not found: ${item.productId}` });
+
         if (!product.companyId.equals(req.user.companyId))
           return res.status(403).json({ message: "Product does not belong to your company" });
-        if (product.quantityInStock < item.quantity)
+
+        // ✅ CORRECT AVAILABLE CALCULATION
+        const available = product.quantityInStock - product.itemsSold;
+
+        if (available < item.quantity)
           return res.status(400).json({
-            message: `Insufficient stock for ${product.name}. Available: ${product.quantityInStock}`
+            message: `Insufficient stock for ${product.name}. Available: ${available}`
           });
 
         item.price = product.sellingPrice;
-        item.productName = product.name; // ✅ LOOKED UP FROM INVENTORY
+        item.productName = product.name;
         item.total = item.price * item.quantity;
         subtotal += item.total;
 
-        product.quantityInStock -= item.quantity;
+        // ✅ FIXED INVENTORY UPDATE
+        // ONLY increase sold count
         product.itemsSold += item.quantity;
+
         await product.save();
-      } else if (item.type === "service") {
+      }
+
+      else if (item.type === "service") {
         if (!item.serviceName || item.serviceName.trim() === "")
           return res.status(400).json({ message: "Service name is required" });
+
         if (!item.price || item.price <= 0)
           return res.status(400).json({ message: "Service price must be greater than 0" });
 
         item.total = item.price * item.quantity;
         subtotal += item.total;
         item.productId = null;
-      } else {
+      }
+
+      else {
         return res.status(400).json({ message: `Invalid item type: ${item.type}` });
       }
     }
@@ -90,7 +104,7 @@ router.post("/create", auth, async (req, res) => {
     }
 
     // ===============================
-    // CREATE SALE (UNCHANGED LOGIC)
+    // CREATE SALE
     // ===============================
     const sale = await Sale.create({
       saleId: generateSaleId(),
@@ -112,7 +126,7 @@ router.post("/create", auth, async (req, res) => {
 
     console.log(`🟢 SALE CREATED: ${sale.saleId}`);
 
-    // Ledger posting (unchanged)
+    // Ledger posting
     await postSaleLedger(sale);
     console.log("📘 LEDGER UPDATED FOR SALE");
 
@@ -132,21 +146,19 @@ router.post("/create", auth, async (req, res) => {
       customerName,
       customerPhone,
 
-      // 🔐 FIRS RULE: NEVER AUTO-SUBMIT
       firsInvoiceStatus: "DRAFT",
       submittedToFirs: false,
-
       createdBy: req.user._id
     });
 
     console.log(`🟢 INVOICE CREATED (DRAFT): ${invoice.invoiceId}`);
 
-    // OPTIONAL BUT SAFE: link invoice to sale (no breaking)
+    // Link invoice to sale
     sale.invoiceId = invoice.invoiceId;
     await sale.save();
 
     // ===============================
-    // UPDATE COMPANY TAX (UNCHANGED)
+    // UPDATE COMPANY TAX
     // ===============================
     const saleDate = new Date(sale.createdAt);
     await updateCompanyTaxFromSales(
@@ -158,7 +170,6 @@ router.post("/create", auth, async (req, res) => {
 
     console.log("✅ COMPANY TAX UPDATED");
 
-    // RETURN RESPONSE
     res.status(201).json({ sale, invoice });
 
   } catch (err) {
@@ -166,6 +177,10 @@ router.post("/create", auth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+
+
+
 
 // ======================================================
 // ALL OTHER ROUTES — UNTOUCHED
