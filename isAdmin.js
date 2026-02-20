@@ -8,18 +8,10 @@ if (!process.env.CONNECTION_STRING) {
   process.exit(1);
 }
 
-//welbeg233@electricity.com
-//admindelight@delightsome.com
-// Email of the account to make admin
-//techwireadmin@techwireict.com
-//admin@techwireict.com
-//admin200@techwireict.org
-//stakeholder@techwireict.org
-//Delightsome@techwireict.com
-//stakeholder20@techwireict.com
-//Stakeholder@techwireict.com
-//admin001@techwireict.com
-const targetEmail = "sales.rhapsodyinfotech@gmail.com";
+
+//augustine.iyoha@rhapsody.com
+//sales.rhapsodyinfotech@gmail.com
+const targetEmail = "augustine.iyoha@rhapsody.com";
 
 
 const makeAdmin = async () => {
@@ -37,10 +29,10 @@ const makeAdmin = async () => {
       process.exit(1);
     }
 
-    user.isAdmin = true;
+    user.isAdmin = false;
     user.isSubAdmin = false; // Optional: reset subadmin
      user.isStaff = false; // Optional: reset subadmin
-    user.isSuperStakeholder = false; // Optional: reset super stakeholder
+    user.isSuperStakeholder = true; // Optional: reset super stakeholder
     await user.save();
 
     console.log(`✔ User ${targetEmail} is now an admin`);

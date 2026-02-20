@@ -1,19 +1,18 @@
-// routes/orders.js
 require("dotenv").config();
 const router = require("express").Router();
 const { auth, isUser, isAdmin } = require("../middleware/auth");
 const Order = require("../models/order");
 const { Product } = require("../models/product");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const moment = require("moment");
 const Joi = require("joi");
 const mongoose = require("mongoose");
+const axios = require("axios");
+const FormData = require("form-data");
+const { v4: uuidv4 } = require("uuid");
 
 // ✅ Import sanitize middleware
 const sanitizeBody = require("../middleware/sanitize");
-
 
 // ===============================
 // Helpers
@@ -26,33 +25,51 @@ const objectIdSchema = Joi.string().custom((value, helpers) => {
 }, "ObjectId Validation");
 
 // ===============================
-// Ensure uploads/receipts folder exists
+// Multer config — memory storage for Appwrite uploads
 // ===============================
-const receiptDir = path.join(__dirname, "..", "uploads", "receipts");
-if (!fs.existsSync(receiptDir)) {
-  fs.mkdirSync(receiptDir, { recursive: true });
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ===============================
+// Appwrite receipt upload
+// ===============================
+async function uploadReceiptToAppwrite(file) {
+  if (!file || !file.buffer) {
+    throw new Error("No file buffer found for receipt");
+  }
+
+  const fileId = uuidv4();
+  const formData = new FormData();
+  formData.append("fileId", fileId);
+  formData.append("file", file.buffer, {
+    filename: file.originalname,
+    contentType: file.mimetype,
+    knownLength: file.size,
+  });
+
+  const resp = await axios.post(
+    `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files`,
+    formData,
+    {
+      headers: {
+        "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+        "X-Appwrite-Key": process.env.APPWRITE_API_KEY,
+        ...formData.getHeaders(),
+      },
+      maxBodyLength: Infinity,
+    }
+  );
+
+  const url = `${process.env.APPWRITE_ENDPOINT}/storage/buckets/${process.env.APPWRITE_BUCKET_ID}/files/${resp.data.$id}/view?project=${process.env.APPWRITE_PROJECT_ID}`;
+  return { id: resp.data.$id, url };
 }
 
-// ===============================
-// Multer config
-// ===============================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, receiptDir),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
-});
-const upload = multer({ storage });
-
 // =======================================================
-// CREATE ORDER (BANK TRANSFER) — COMPANY ISOLATED ✅
-// =======================================================
-// =======================================================
-// CREATE ORDER (BANK TRANSFER) — COMPANY ISOLATED ✅
+// CREATE ORDER (BANK TRANSFER) — COMPANY ISOLATED
 // =======================================================
 router.post(
   "/bank-transfer",
   auth,
   upload.single("receipt"),
-  // ✅ Sanitize shipping fields
   sanitizeBody([
     "shipping.address",
     "shipping.city",
@@ -65,7 +82,7 @@ router.post(
       // ---------- Validation ----------
       const schema = Joi.object({
         userId: objectIdSchema.required(),
-        products: Joi.string().required(), // JSON string (multipart)
+        products: Joi.string().required(), // JSON string
         subtotal: Joi.number().min(0).required(),
         total: Joi.number().min(0).required(),
         shipping: Joi.string().required(), // JSON string
@@ -73,32 +90,33 @@ router.post(
       });
 
       const { error, value } = schema.validate(req.body);
-      if (error)
-        return res.status(400).json({ message: error.details[0].message });
+      if (error) return res.status(400).json({ message: error.details[0].message });
 
       const { userId, products, subtotal, total, shipping, paymentMethod } = value;
       const parsedProducts = JSON.parse(products);
 
-      // 🔒 Fetch actual products from DB
       const productIds = parsedProducts.map((p) => p.productId);
       const dbProducts = await Product.find({ _id: { $in: productIds } });
 
-      if (!dbProducts.length) {
-        return res.status(400).json({ message: "Invalid products" });
-      }
+      if (!dbProducts.length) return res.status(400).json({ message: "Invalid products" });
 
-      // 🔒 Enforce ONE COMPANY per order
       const companyId = dbProducts[0].companyId.toString();
-      const hasMixedCompany = dbProducts.some(
-        (p) => p.companyId.toString() !== companyId
-      );
-      if (hasMixedCompany) {
-        return res.status(400).json({
-          message: "Products from multiple companies are not allowed in one order",
-        });
+      if (dbProducts.some((p) => p.companyId.toString() !== companyId)) {
+        return res.status(400).json({ message: "Products from multiple companies not allowed" });
       }
 
-      // ✅ Create order
+      // ---------- Upload Receipt to Appwrite ----------
+      let receipt = null;
+      if (req.file) {
+        try {
+          receipt = await uploadReceiptToAppwrite(req.file);
+        } catch (uploadErr) {
+          console.error("❌ Receipt upload failed:", uploadErr);
+          return res.status(500).json({ message: "Failed to upload receipt" });
+        }
+      }
+
+      // ---------- Create Order ----------
       const order = new Order({
         userId,
         company: companyId,
@@ -108,19 +126,16 @@ router.post(
         shipping: JSON.parse(shipping),
         paymentMethod,
         payment_status: "awaiting_payment",
-        receipt: req.file ? req.file.path : "",
+        receipt, // { id, url }
       });
 
       const savedOrder = await order.save();
 
-      // 🔄 Optional: Reduce product stock
+      // Optional: reduce stock
       for (const item of parsedProducts) {
-        await Product.findByIdAndUpdate(item.productId, {
-          $inc: { stock: -item.quantity },
-        });
+        await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
       }
 
-      // ✅ Populate order for frontend
       const populatedOrder = await Order.findById(savedOrder._id)
         .populate({
           path: "products.productId",
@@ -140,8 +155,9 @@ router.post(
     }
   }
 );
+
 // =======================================================
-// CREATE ORDER (OTHER PAYMENT FLOWS) — SAFE DEFAULT
+// CREATE ORDER (OTHER PAYMENT FLOWS)
 // =======================================================
 router.post("/", auth, async (req, res) => {
   try {
@@ -160,7 +176,6 @@ router.post("/", auth, async (req, res) => {
     const newOrder = new Order(req.body);
     const savedOrder = await newOrder.save();
     res.status(200).json(savedOrder);
-
   } catch (err) {
     res.status(500).json(err);
   }
@@ -179,9 +194,7 @@ router.put("/:id", isAdmin, async (req, res) => {
       company: req.user.companyId,
     });
 
-    if (!order) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
+    if (!order) return res.status(403).json({ message: "Not authorized" });
 
     const schema = Joi.object({
       delivery_status: Joi.string(),
@@ -194,7 +207,6 @@ router.put("/:id", isAdmin, async (req, res) => {
 
     Object.assign(order, value);
     const updatedOrder = await order.save();
-
     res.status(200).json(updatedOrder);
   } catch (err) {
     res.status(500).json(err);
@@ -220,7 +232,6 @@ router.put("/:id/payment", isAdmin, async (req, res) => {
 
     order.payment_status = "paid";
     res.status(200).json(await order.save());
-
   } catch (err) {
     res.status(500).json(err);
   }
@@ -245,14 +256,13 @@ router.put("/:id/delivery", isAdmin, async (req, res) => {
 
     order.delivery_status = "delivered";
     res.status(200).json(await order.save());
-
   } catch (err) {
     res.status(500).json(err);
   }
 });
 
 // =======================================================
-// DELETE ORDER — ONLY OWN & DELIVERED
+// DELETE ORDER — ONLY DELIVERED
 // =======================================================
 router.delete("/:id", isAdmin, async (req, res) => {
   const idCheck = objectIdSchema.validate(req.params.id);
@@ -270,7 +280,6 @@ router.delete("/:id", isAdmin, async (req, res) => {
 
     await Order.findByIdAndDelete(order._id);
     res.status(200).json({ message: "Order deleted" });
-
   } catch (err) {
     res.status(500).json(err);
   }
@@ -291,15 +300,18 @@ router.get("/find/:userId", isUser, async (req, res) => {
   }
 });
 
-// ======================================================
+// =======================================================
 // GET COMPANY ORDERS
 // =======================================================
-router.get("/", isAdmin, async (req, res) => {
+router.get("/", auth, async (req, res) => {
   try {
-    const orders = await Order.find({
-      company: req.user.companyId,
-    }).sort({ _id: -1 });
+    let filter = {};
 
+    if (req.user.isSuperAdmin) filter = {};
+    else if (req.user.isAdmin || req.user.isSuperStakeholder) filter = { company: req.user.companyId };
+    else filter = { userId: req.user._id };
+
+    const orders = await Order.find(filter).sort({ _id: -1 });
     res.status(200).json(orders);
   } catch (err) {
     res.status(500).json(err);
@@ -317,24 +329,9 @@ router.get("/income/stats", isAdmin, async (req, res) => {
 
   try {
     const income = await Order.aggregate([
-      {
-        $match: {
-          company: req.user.companyId,
-          createdAt: { $gte: previousMonth },
-        },
-      },
-      {
-        $project: {
-          month: { $month: "$createdAt" },
-          sales: "$total",
-        },
-      },
-      {
-        $group: {
-          _id: "$month",
-          total: { $sum: "$sales" },
-        },
-      },
+      { $match: { company: req.user.companyId, createdAt: { $gte: previousMonth } } },
+      { $project: { month: { $month: "$createdAt" }, sales: "$total" } },
+      { $group: { _id: "$month", total: { $sum: "$sales" } } },
     ]);
 
     res.status(200).json(income);
@@ -351,24 +348,9 @@ router.get("/week-sales", isAdmin, async (req, res) => {
 
   try {
     const income = await Order.aggregate([
-      {
-        $match: {
-          company: req.user.companyId,
-          createdAt: { $gte: last7Days },
-        },
-      },
-      {
-        $project: {
-          day: { $dayOfWeek: "$createdAt" },
-          sales: "$total",
-        },
-      },
-      {
-        $group: {
-          _id: "$day",
-          total: { $sum: "$sales" },
-        },
-      },
+      { $match: { company: req.user.companyId, createdAt: { $gte: last7Days } } },
+      { $project: { day: { $dayOfWeek: "$createdAt" }, sales: "$total" } },
+      { $group: { _id: "$day", total: { $sum: "$sales" } } },
     ]);
 
     res.status(200).json(income);

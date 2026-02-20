@@ -23,7 +23,10 @@ const orderSchema = new mongoose.Schema(
   enum: ["stripe", "bankTransfer"], 
   required: true 
 },
-    receipt: { type: String }, // path to uploaded receipt file
+     receipt: { 
+      type: { id: String, url: String }, // ✅ Updated for Appwrite uploads
+      default: null 
+    },
 
     // use enums and defaults so statuses are consistent
     delivery_status: {

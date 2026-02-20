@@ -163,7 +163,6 @@ app.use((req, res, next) => {
 ------------------------------ */
 app.use(
   "/uploads",
-  auth, // require auth for uploads
   express.static("uploads", {
     dotfiles: "deny",
     maxAge: "1d",

@@ -383,17 +383,36 @@ router.delete("/:id", auth, isAdmin, async (req, res) => {
 
 // ---- GET ALL PRODUCTS ----
 // ---- GET ALL PRODUCTS (PUBLIC) ----
-router.get("/", auth, async (req, res) => {
-  const companyId = req.user.companyId;
+// ---- GET ALL PRODUCTS ----
+router.get("/", async (req, res) => {
+  console.log("📥 [GET /products] Fetch all products request");
+  try {
+    // Nested population: get uploader's company name
+    const products = await Product.find().populate({
+      path: "createdBy",
+      select: "companyId",
+      populate: { path: "companyId", select: "name" } // populate company name
+    });
 
-  const products = await Product.find({ companyId }).populate({
-    path: "createdBy",
-    select: "companyId",
-    populate: { path: "companyId", select: "name" }
-  });
+    // Transform response to include uploaderCompanyName
+    const response = products.map(product => ({
+      ...product.toObject(),
+      uploaderCompanyName: product.createdBy?.companyId?.name || "Unknown"
+    }));
 
-  res.json(products);
+    console.log(`✅ [GET /products] Found ${products.length} products`);
+
+    // Log how many have discount
+    const discountedCount = products.filter(p => Number(p.discountPercent) > 0).length;
+    console.log(`💰 Discounted products count: ${discountedCount}`);
+
+    res.status(200).json(response);
+  } catch (error) {
+    console.error("❌ [GET /products] Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
 });
+
 
 
 

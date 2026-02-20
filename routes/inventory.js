@@ -206,13 +206,32 @@ router.patch("/update-sold/:productId", auth, async (req, res) => {
 
 
 
+// -------------------------------------------------
+// DIRECT PRODUCT EDIT (STAKEHOLDER ONLY)
+// -------------------------------------------------
+router.patch("/edit-product/:productId", auth, async (req, res) => {
+  if (!req.user.isSuperStakeholder) {
+    return res.status(403).json({ message: "Only stakeholder can edit product" });
+  }
 
+  try {
+    const product = await InventoryProduct.findOne({
+      _id: req.params.productId,
+      companyId: req.user.companyId
+    });
 
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
 
+    Object.assign(product, req.body);
+    await product.save();
 
-
-
-
+    res.json({ message: "Product updated successfully", product });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 
 
@@ -311,15 +330,6 @@ router.get("/pending-requests", auth, async (req, res) => {
 
   res.json(requests);
 });
-
-
-
-
-
-
-
-
-
 
 
 
