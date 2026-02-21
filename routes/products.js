@@ -334,6 +334,7 @@ router.put(
         desc: Joi.string().min(1).max(3000),
         price: Joi.number().min(0),
         originalPrice: Joi.number().min(0),
+         vatPercent: Joi.number().min(0).max(100), // ✅ ADD
         discountPercent: Joi.number().min(0).max(100),
         rating: Joi.number().min(1).max(5),
         features: Joi.any(),

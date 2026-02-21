@@ -146,6 +146,7 @@ const productSchema = new mongoose.Schema(
     features: { type: [String], default: [] },
     price: { type: Number, required: true },
     originalPrice: { type: Number, default: 0 },
+     vatPercent: { type: Number, default: 0, min: 0, max: 100 }, // ✅ ADD
     discountPercent: { type: Number, default: 0 },
     images: [{ id: String, url: String }],
     rating: { type: Number, default: 4, min: 1, max: 5 },
