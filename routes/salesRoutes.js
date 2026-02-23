@@ -4,20 +4,23 @@ const { auth, isAdmin, isSuperStakeholder, isSubAdmin } = require("../middleware
 const { updateCompanyTaxFromSales } = require("../utils/companyTaxUpdater");
 const Sale = require("../models/Sale");
 const InventoryProduct = require("../models/InventoryProduct");
+const StockMovement = require("../models/StockMovement");
 const Invoice = require("../models/Invoice");
 const postSaleLedger = require("../utils/postSaleLedger");
-const { queueFirsSubmission } = require("../utils/firsQueue");
+const Store = require("../models/Store");
+const StoreInventory = require("../models/StoreInventory");
 
 // Generate Sale ID
 const generateSaleId = () => `SALE-${Math.floor(100000 + Math.random() * 900000)}`;
 // Generate Invoice ID
 const generateInvoiceId = () => `INV-${Math.floor(100000 + Math.random() * 900000)}`;
 
-
 // ======================================================
-// CREATE A NEW SALE (FIRS-COMPLIANT)
+// CREATE A NEW SALE (with automatic invoice creation)
 // ======================================================
 router.post("/create", auth, async (req, res) => {
+  const session = await require("mongoose").startSession();
+  session.startTransaction();
   try {
     console.log(
       "🔵 [SALE CREATE]",
@@ -42,54 +45,112 @@ router.post("/create", auth, async (req, res) => {
 
     let subtotal = 0;
 
+    // ✅ VALIDATE STORE ONCE (FIXED)
+    const store = await Store.findOne({
+      _id: req.body.storeId,
+      companyId: req.user.companyId
+    });
+
+    if (!store)
+      return res.status(404).json({ message: "Store not found" });
+
+    if (store.type !== "OFFICE")
+      return res.status(400).json({
+        message: "Sales allowed only from office store"
+      });
+
+    // ======================================================
+    // PROCESS ITEMS
+    // ======================================================
     for (const item of items) {
+
       if (item.type === "product") {
+
         const product = await InventoryProduct.findById(item.productId);
+
         if (!product)
-          return res.status(404).json({ message: `Product not found: ${item.productId}` });
-
-        if (!product.companyId.equals(req.user.companyId))
-          return res.status(403).json({ message: "Product does not belong to your company" });
-
-        // ✅ CORRECT AVAILABLE CALCULATION
-        const available = product.quantityInStock - product.itemsSold;
-
-        if (available < item.quantity)
-          return res.status(400).json({
-            message: `Insufficient stock for ${product.name}. Available: ${available}`
+          return res.status(404).json({
+            message: `Product not found: ${item.productId}`
           });
 
+        if (!product.companyId.equals(req.user.companyId))
+          return res.status(403).json({
+            message: "Product does not belong to your company"
+          });
+
+       // if (product.quantityInStock < item.quantity)
+         // return res.status(400).json({
+          //  message: `Insufficient stock for ${product.name}. Available: ${product.quantityInStock}`
+         // });
+
         item.price = product.sellingPrice;
-        item.productName = product.name;
         item.total = item.price * item.quantity;
         subtotal += item.total;
 
-        // ✅ FIXED INVENTORY UPDATE
-        // ONLY increase sold count
+        // CHECK STORE STOCK
+        const stock = await StoreInventory.findOne({
+          store: req.body.storeId,
+          product: item.productId
+        });
+
+        if (!stock || stock.quantity < item.quantity)
+          return res.status(400).json({
+            message: `Not enough stock in selected store`
+          });
+
+       //stock.quantity -= item.quantity;
+        //await stock.save();
+
+
+        const previousQty = stock.quantity;
+stock.quantity -= item.quantity;
+await stock.save();
+
+await StockMovement.create({
+  companyId: req.user.companyId,
+  product: item.productId,
+  type: "STOCK_OUT",
+  quantity: item.quantity,
+  previousQuantity: previousQty,
+  newQuantity: stock.quantity,
+  description: "Product sold",
+  performedBy: req.user._id,
+  store: store._id
+});
+
+        // track analytics
         product.itemsSold += item.quantity;
-
         await product.save();
-      }
 
-      else if (item.type === "service") {
+      } else if (item.type === "service") {
+
         if (!item.serviceName || item.serviceName.trim() === "")
-          return res.status(400).json({ message: "Service name is required" });
+          return res.status(400).json({
+            message: "Service name is required"
+          });
 
         if (!item.price || item.price <= 0)
-          return res.status(400).json({ message: "Service price must be greater than 0" });
+          return res.status(400).json({
+            message: "Service price must be greater than 0"
+          });
 
         item.total = item.price * item.quantity;
         subtotal += item.total;
         item.productId = null;
-      }
 
-      else {
-        return res.status(400).json({ message: `Invalid item type: ${item.type}` });
+      } else {
+        return res.status(400).json({
+          message: `Invalid item type: ${item.type}`
+        });
       }
     }
 
-    // VAT fallback
+    // ======================================================
+    // VAT CALCULATION
+    // ======================================================
+
     const VAT_RATE = Number(vatRate ?? 7.5);
+
     if (VAT_RATE < 0 || VAT_RATE > 100) {
       return res.status(400).json({ message: "Invalid VAT rate" });
     }
@@ -97,42 +158,47 @@ router.post("/create", auth, async (req, res) => {
     const vatAmount = Number(((subtotal * VAT_RATE) / 100).toFixed(2));
     const totalAmount = subtotal + vatAmount - Number(discount);
 
-    // Commission
+    // ======================================================
+    // COMMISSION CALCULATION
+    // ======================================================
+
     let commissionAmount = 0;
     if (salesperson && commissionRate > 0) {
       commissionAmount = Number(((totalAmount * commissionRate) / 100).toFixed(2));
     }
 
-    // ===============================
+    // ======================================================
     // CREATE SALE
-    // ===============================
-    const sale = await Sale.create({
-      saleId: generateSaleId(),
-      companyId: req.user.companyId,
-      items,
-      subtotal,
-      vatRate: VAT_RATE,
-      vatAmount,
-      discount,
-      totalAmount,
-      paymentMethod,
-      customerName,
-      customerPhone,
-      salesperson: salesperson || null,
-      commissionRate,
-      commissionAmount,
-      createdBy: req.user._id
-    });
+    // ======================================================
 
+    const sale = await Sale.create({
+  saleId: generateSaleId(),
+  companyId: req.user.companyId,
+  store: store._id, // ✅ important
+  items,
+  subtotal,
+  vatRate: VAT_RATE,
+  vatAmount,
+  discount,
+  totalAmount,
+  paymentMethod,
+  customerName,
+  customerPhone,
+  salesperson: salesperson || null,
+  commissionRate,
+  commissionAmount,
+  createdBy: req.user._id
+});
     console.log(`🟢 SALE CREATED: ${sale.saleId}`);
 
-    // Ledger posting
+    // POST TO LEDGER
     await postSaleLedger(sale);
     console.log("📘 LEDGER UPDATED FOR SALE");
 
-    // ===============================
-    // CREATE INVOICE (DRAFT — FIRS SAFE)
-    // ===============================
+    // ======================================================
+    // CREATE INVOICE
+    // ======================================================
+
     const invoice = await Invoice.create({
       invoiceId: generateInvoiceId(),
       companyId: req.user.companyId,
@@ -142,25 +208,19 @@ router.post("/create", auth, async (req, res) => {
       vatAmount,
       discount,
       totalAmount,
-      paymentMethod: paymentMethod || "Pending",
       customerName,
       customerPhone,
-
-      firsInvoiceStatus: "DRAFT",
-      submittedToFirs: false,
       createdBy: req.user._id
     });
 
-    console.log(`🟢 INVOICE CREATED (DRAFT): ${invoice.invoiceId}`);
+    console.log(`🟢 INVOICE CREATED: ${invoice.invoiceId} for Sale ${sale.saleId}`);
 
-    // Link invoice to sale
-    sale.invoiceId = invoice.invoiceId;
-    await sale.save();
-
-    // ===============================
+    // ======================================================
     // UPDATE COMPANY TAX
-    // ===============================
+    // ======================================================
+
     const saleDate = new Date(sale.createdAt);
+
     await updateCompanyTaxFromSales(
       sale.companyId,
       saleDate.getMonth() + 1,
@@ -170,9 +230,18 @@ router.post("/create", auth, async (req, res) => {
 
     console.log("✅ COMPANY TAX UPDATED");
 
-    res.status(201).json({ sale, invoice });
+    // ======================================================
+    // RESPONSE
+    // ======================================================
+
+   await session.commitTransaction();
+session.endSession();
+
+res.status(201).json({ sale, invoice });
 
   } catch (err) {
+  await session.abortTransaction();
+  session.endSession();
     console.error("🔥 [SALE CREATE ERROR]:", err);
     res.status(500).json({ message: err.message });
   }
@@ -181,11 +250,9 @@ router.post("/create", auth, async (req, res) => {
 
 
 
-
 // ======================================================
-// ALL OTHER ROUTES — UNTOUCHED
+// GET ALL SALES
 // ======================================================
-
 router.get("/all", auth, async (req, res) => {
   if (!req.user.isAdmin && !req.user.isSuperStakeholder && !req.user.isSubAdmin) {
     return res.status(403).json({ message: "Access denied" });
@@ -204,72 +271,9 @@ router.get("/all", auth, async (req, res) => {
   }
 });
 
-
-
 // ======================================================
-// FINALIZE INVOICE (FIRS ENTRY POINT)
+// GET SINGLE SALE
 // ======================================================
-// ======================================================
-// FINALIZE INVOICE (FIRS ENTRY POINT)
-// ======================================================
-router.post("/:invoiceId/finalize", auth, async (req, res) => {
-  try {
-    const invoice = await Invoice.findOne({
-      invoiceId: req.params.invoiceId,
-      companyId: req.user.companyId
-    });
-
-    if (!invoice) {
-      return res.status(404).json({ message: "Invoice not found" });
-    }
-
-    if (invoice.firsInvoiceStatus !== "DRAFT") {
-      return res.status(400).json({
-        message: `Invoice already ${invoice.firsInvoiceStatus}`
-      });
-    }
-
-    // ✅ MOCK: If FIRS API is not configured
-    if (!process.env.FIRS_API_KEY) {
-      console.log("FIRS API not configured. Skipping actual submission.");
-
-      // Update invoice locally to FINAL
-      invoice.firsInvoiceStatus = "FINAL";
-      await invoice.save();
-
-      return res.json({
-        success: true,
-        message: "Invoice finalized locally (mock).",
-        firsInvoiceStatus: invoice.firsInvoiceStatus,
-        invoiceId: invoice.invoiceId,
-        totalAmount: invoice.totalAmount,
-        items: invoice.items,
-        subtotal: invoice.subtotal,
-        vatRate: invoice.vatRate,
-        vatAmount: invoice.vatAmount,
-        discount: invoice.discount
-      });
-    }
-
-    // 1️⃣ Mark FINAL (for real FIRS submission)
-    invoice.firsInvoiceStatus = "FINAL";
-    await invoice.save();
-
-    // 2️⃣ Queue for FIRS submission (async-safe)
-    await queueFirsSubmission(invoice._id);
-
-    res.json({
-      message: "Invoice finalized and queued for FIRS submission",
-      invoiceId: invoice.invoiceId
-    });
-
-  } catch (err) {
-    console.error("🔥 [FINALIZE INVOICE ERROR]:", err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-
 router.get("/:saleId", auth, async (req, res) => {
   try {
     const sale = await Sale.findOne({
@@ -290,6 +294,69 @@ router.get("/:saleId", auth, async (req, res) => {
 
 
 
+// GET sales for a freelancer
+// GET freelancer sales
+// GET sales for a freelancer or staff
+router.get("/freelancer/sales", auth, async (req, res) => {
+  try {
+    if (!req.user.isFreelancer && !req.user.isStaff) {
+      return res.status(403).json({ message: "Access denied" });
+    }
 
+    const sales = await Sale.find({
+      salesperson: req.user._id,
+      companyId: req.user.companyId, // company isolation
+    })
+      .populate("items.productId", "name productModel category")
+      .populate("createdBy", "name email")
+      .sort({ createdAt: -1 });
+
+    const totalCommission = sales.reduce((acc, sale) => acc + sale.commissionAmount, 0);
+
+    res.status(200).json({ sales, totalCommission });
+  } catch (err) {
+    console.error("🔥 [FREELANCER/STAFF SALES ERROR]:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+
+// GET all freelancers sales with commission
+// GET all freelancers/staff sales with commission
+router.get("/freelancer/all", auth, async (req, res) => {
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder && !req.user.isSubAdmin) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  try {
+    // Get all freelancers + staff in the company
+    const teamMembers = await User.find({
+      companyId: req.user.companyId,
+      $or: [{ isFreelancer: true }, { isStaff: true }],
+    }).select("_id name email isFreelancer isStaff");
+
+    const data = [];
+
+    for (const member of teamMembers) {
+      const sales = await Sale.find({
+        salesperson: member._id,
+        companyId: req.user.companyId,
+      })
+        .populate("items.productId", "name productModel category")
+        .populate("createdBy", "name email")
+        .sort({ createdAt: -1 });
+
+      const totalCommission = sales.reduce((acc, sale) => acc + sale.commissionAmount, 0);
+
+      data.push({ member, sales, totalCommission });
+    }
+
+    res.status(200).json(data);
+  } catch (err) {
+    console.error("🔥 [ADMIN TEAM SALES ERROR]:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
 
 module.exports = router;

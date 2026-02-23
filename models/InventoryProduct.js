@@ -47,6 +47,7 @@ const inventoryProductSchema = new mongoose.Schema(
         "Smart Home Automation",
         "Power & Backup Solutions",
         "Printers & Scanners",
+         "Accessories",     
         "All Products"
       ]
     },
@@ -56,16 +57,16 @@ const inventoryProductSchema = new mongoose.Schema(
     costPrice: { type: Number, required: true },
     sellingPrice: { type: Number, required: true },
 
-    quantityInStock: { type: Number, default: 0 },
-    itemsSold: { type: Number, default: 0 },
+   // quantityInStock: { type: Number, default: 0 },
+   // itemsSold: { type: Number, default: 0 },
 
-    itemsAvailable: {
-      type: Number,
-      default: function () {
-        return this.quantityInStock - this.itemsSold;
-      }
-    },
-
+   // itemsAvailable: {
+    //  type: Number,
+    //  default: function () {
+       // return this.quantityInStock - this.itemsSold;
+      //}
+   // },
+     totalSold: { type: Number, default: 0 },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User"
@@ -75,9 +76,9 @@ const inventoryProductSchema = new mongoose.Schema(
 );
 
 // Auto-update available items
-inventoryProductSchema.pre("save", function (next) {
-  this.itemsAvailable = this.quantityInStock - this.itemsSold;
-  next();
-});
+//inventoryProductSchema.pre("save", function (next) {
+ // this.itemsAvailable = this.quantityInStock - this.itemsSold;
+  //next();
+//});
 
 module.exports = mongoose.model("InventoryProduct", inventoryProductSchema);
