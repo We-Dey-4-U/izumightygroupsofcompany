@@ -20,6 +20,11 @@ const userSchema = new mongoose.Schema(
     company: { type: String, default: null },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: "Company", default: null },
 
+       permissions: {
+  type: [String],
+  default: []
+},
+
     isAdmin: { type: Boolean, default: false },
     isStaff: { type: Boolean, default: false },
     isSuperStakeholder: { type: Boolean, default: false },

@@ -25,32 +25,11 @@ const inventoryProductSchema = new mongoose.Schema(
       immutable: true
     },
 
-    category: {
-      type: String,
-      required: true,
-      enum: [
-        "CCTV & Security",
-        "Networking Devices",
-        "Computers & Laptops",
-        "Servers & Storage",
-        "Software Solutions",
-        "Custom Software Development",
-        "Cybersecurity Tools",
-        "Digital Transformation Tools",
-        "Telecom Equipment",
-        "IT Infrastructure Solutions",
-        "Cloud & Hosting Services",
-        "IT Sales and Deployment",
-        "Inventory Solutions",
-        "Access Control Solutions",
-        "Tracking Solutions",
-        "Smart Home Automation",
-        "Power & Backup Solutions",
-        "Printers & Scanners",
-         "Accessories",     
-        "All Products"
-      ]
-    },
+   category: {
+  type: String,
+  required: true,
+  trim: true // optional: trims whitespace
+},
 
     image: String,
 

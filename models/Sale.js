@@ -13,6 +13,12 @@ const saleSchema = new mongoose.Schema(
       index: true
     },
 
+    store: {
+     type: mongoose.Schema.Types.ObjectId,
+    ref: "Store",
+     required: true
+    },
+
     items: [
       {
         type: {
@@ -27,12 +33,10 @@ const saleSchema = new mongoose.Schema(
           default: null
         },
 
-          productName: {
-      type: String,
-      required: false // 🔴 SNAPSHOT FOR FIRS / AUDIT / QR
-    },
+        // ⭐ SNAPSHOT FIELDS (IMPORTANT FOR RECEIPTS)
+         productName: { type: String, default: "" },
+         serviceName: { type: String, default: "" },
 
-        serviceName: { type: String, default: "" },
         quantity: { type: Number, required: true },
         price: { type: Number, required: true },
         total: { type: Number, required: true }
@@ -53,10 +57,12 @@ const saleSchema = new mongoose.Schema(
     customerPhone: String,
 
     createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true
-    },
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  required: true
+},
+
+createdByName: String,
 
     // 🔹 Commission fields
     salesperson: { 

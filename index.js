@@ -36,6 +36,7 @@ const payeRemittanceRoutes = require("./routes/payeRemittance");
 const firsExportRoutes = require("./routes/firsExport");
 const taxLedgerRoutes = require("./routes/taxLedger");
 const userRoutes = require("./routes/users");
+const roleRoutes = require("./routes/role.routes");
 
 // Security middleware
 const { apiKeyMiddleware, createRateLimiter } = require("./middleware/security");
@@ -228,6 +229,7 @@ app.use("/api/safe-fetch", safeFetchRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/finance", financeRoutes);
+app.use("/api/roles", roleRoutes);
 /* ------------------------------
    BASE ROUTES
 ------------------------------ */

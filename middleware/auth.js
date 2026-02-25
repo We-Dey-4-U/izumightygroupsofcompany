@@ -87,14 +87,32 @@ const companyDataAccess = (model) => async (req, res, next) => {
   next();
 };
 
+const permit = (...allowedPermissions) => {
+  return (req, res, next) => {
+    const perms = req.user.permissions || [];
+
+    const allowed = allowedPermissions.some(p =>
+      perms.includes(p)
+    );
+
+    if (!allowed)
+      return res.status(403).json({
+        message: "Permission denied"
+      });
+
+    next();
+  };
+};
+
 module.exports = {
   auth,
   isUser,
   isAdmin,
   isStaff,
-  isSubAdmin,
   isSuperStakeholder,
-  isSuperAdmin,
+  isSubAdmin,
   isCompanyAdmin,
   companyDataAccess,
+  isSuperAdmin,
+  permit
 };

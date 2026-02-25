@@ -106,10 +106,12 @@ async function uploadToAppwrite(file) {
 // ===============================
 router.post(
   "/",
-    auth,
-  isAdmin,
+  auth,
+  (req, res, next) => {
+    if (req.user.isAdmin || req.user.isSuperStakeholder) return next();
+    return res.status(403).json({ message: "Only admin or stakeholder can create products" });
+  },
   upload.array("images"),
-  // ✅ Only sanitize free-text inputs (name, desc, features)
   sanitizeBody(["name", "desc", "features"]),
   async (req, res) => {
      // 🧪 TEMP DEBUG — ADD HERE

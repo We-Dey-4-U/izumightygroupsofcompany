@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { auth, isAdmin, isSuperStakeholder, isSubAdmin } = require("../middleware/auth");
+const { auth, permit, isAdmin, isSuperStakeholder, isSubAdmin } = require("../middleware/auth");
 const { updateCompanyTaxFromSales } = require("../utils/companyTaxUpdater");
 const Sale = require("../models/Sale");
 const InventoryProduct = require("../models/InventoryProduct");
@@ -18,7 +18,7 @@ const generateInvoiceId = () => `INV-${Math.floor(100000 + Math.random() * 90000
 // ======================================================
 // CREATE A NEW SALE (with automatic invoice creation)
 // ======================================================
-router.post("/create", auth, async (req, res) => {
+router.post("/create", auth, permit("create_sale"), async (req, res) => {
   const session = await require("mongoose").startSession();
   session.startTransaction();
   try {
@@ -27,6 +27,13 @@ router.post("/create", auth, async (req, res) => {
       "User:", req.user._id,
       "CompanyId:", req.user.companyId
     );
+
+    // Explicit safeguard: check if the user has 'create_sale' permission
+    if (!req.user.permissions.includes("create_sale")) {
+      return res.status(403).json({
+        message: "You do not have permission to create sales"
+      });
+    }
 
     const {
       items,
@@ -83,9 +90,10 @@ router.post("/create", auth, async (req, res) => {
           //  message: `Insufficient stock for ${product.name}. Available: ${product.quantityInStock}`
          // });
 
+        item.productName = product.name; // ⭐ IMPORTANT
         item.price = product.sellingPrice;
-        item.total = item.price * item.quantity;
-        subtotal += item.total;
+       item.total = item.price * item.quantity;
+       subtotal += item.total;
 
         // CHECK STORE STOCK
         const stock = await StoreInventory.findOne({
@@ -174,6 +182,7 @@ await StockMovement.create({
     const sale = await Sale.create({
   saleId: generateSaleId(),
   companyId: req.user.companyId,
+  //store: storeId,
   store: store._id, // ✅ important
   items,
   subtotal,
@@ -187,7 +196,8 @@ await StockMovement.create({
   salesperson: salesperson || null,
   commissionRate,
   commissionAmount,
-  createdBy: req.user._id
+ createdBy: req.user._id,
+createdByName: req.user.name
 });
     console.log(`🟢 SALE CREATED: ${sale.saleId}`);
 
@@ -237,7 +247,15 @@ await StockMovement.create({
    await session.commitTransaction();
 session.endSession();
 
-res.status(201).json({ sale, invoice });
+const populatedSale = await Sale.findById(sale._id)
+  .populate("createdBy", "name email")
+  .populate("store", "name type")
+  .populate("items.productId", "name");
+
+res.status(201).json({
+  sale: populatedSale,
+  invoice
+});
 
   } catch (err) {
   await session.abortTransaction();
@@ -253,16 +271,16 @@ res.status(201).json({ sale, invoice });
 // ======================================================
 // GET ALL SALES
 // ======================================================
-router.get("/all", auth, async (req, res) => {
+router.get("/all", auth, permit("view_sales"), async (req,res)=>{
   if (!req.user.isAdmin && !req.user.isSuperStakeholder && !req.user.isSubAdmin) {
     return res.status(403).json({ message: "Access denied" });
   }
 
   try {
     const sales = await Sale.find({ companyId: req.user.companyId })
-      .populate("createdBy", "name email")
-      .populate("items.productId", "name productModel category")
-      .sort({ createdAt: -1 });
+  .populate("createdBy", "name email")
+  .populate("store", "name type")
+  .sort({ createdAt: -1 });
 
     res.status(200).json(sales);
   } catch (err) {
