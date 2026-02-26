@@ -7,6 +7,7 @@ const InventoryProduct = require("../models/InventoryProduct");
 const StockMovement = require("../models/StockMovement");
 const Invoice = require("../models/Invoice");
 const postSaleLedger = require("../utils/postSaleLedger");
+const mongoose = require("mongoose");  // ← ADD THIS
 const Store = require("../models/Store");
 const StoreInventory = require("../models/StoreInventory");
 
@@ -19,7 +20,7 @@ const generateInvoiceId = () => `INV-${Math.floor(100000 + Math.random() * 90000
 // CREATE A NEW SALE (with automatic invoice creation)
 // ======================================================
 router.post("/create", auth, permit("create_sale"), async (req, res) => {
-  const session = await require("mongoose").startSession();
+  const session = await mongoose.startSession();  // ← USE THIS
   session.startTransaction();
   try {
     console.log(
@@ -112,9 +113,9 @@ router.post("/create", auth, permit("create_sale"), async (req, res) => {
 
         const previousQty = stock.quantity;
 stock.quantity -= item.quantity;
-await stock.save();
+await stock.save({ session });
 
-await StockMovement.create({
+await StockMovement.create([{
   companyId: req.user.companyId,
   product: item.productId,
   type: "STOCK_OUT",
@@ -124,11 +125,11 @@ await StockMovement.create({
   description: "Product sold",
   performedBy: req.user._id,
   store: store._id
-});
+}], { session });
 
         // track analytics
         product.itemsSold += item.quantity;
-        await product.save();
+       await product.save({ session });
 
       } else if (item.type === "service") {
 

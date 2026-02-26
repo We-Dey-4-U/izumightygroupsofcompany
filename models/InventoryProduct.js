@@ -36,7 +36,7 @@ const inventoryProductSchema = new mongoose.Schema(
     costPrice: { type: Number, required: true },
     sellingPrice: { type: Number, required: true },
 
-   // quantityInStock: { type: Number, default: 0 },
+    quantityInStock: { type: Number, default: 0 },
    // itemsSold: { type: Number, default: 0 },
 
    // itemsAvailable: {

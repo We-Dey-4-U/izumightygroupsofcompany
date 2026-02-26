@@ -28,7 +28,7 @@ const makeAdmin = async () => {
       console.error(`❌ User not found: ${targetEmail}`);
       process.exit(1);
     }
-
+//admin@cryziumlaunge.com
     user.isAdmin = false;
     user.isSubAdmin = false; // Optional: reset subadmin
      user.isStaff = false; // Optional: reset subadmin

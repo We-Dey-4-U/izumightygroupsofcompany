@@ -206,6 +206,7 @@ router.get("/products", auth, async (req, res) => {
 
     const products = await InventoryProduct.aggregate([
       { $match: { companyId } },
+
       {
         $lookup: {
           from: "storeinventories",
@@ -217,6 +218,15 @@ router.get("/products", auth, async (req, res) => {
           as: "stock"
         }
       },
+
+      // ✅ keep old stored quantity
+      {
+        $addFields: {
+          oldQuantityInStock: "$quantityInStock"
+        }
+      },
+
+      // ✅ calculate new live quantity
       {
         $addFields: {
           quantityInStock: {
@@ -224,12 +234,13 @@ router.get("/products", auth, async (req, res) => {
           }
         }
       },
+
       { $project: { stock: 0 } },
       { $sort: { createdAt: -1 } }
     ]);
 
     res.json(products.map(p => ({
-      ...p, // directly spread, no _doc
+      ...p,
       itemsSold: p.totalSold || 0
     })));
 
