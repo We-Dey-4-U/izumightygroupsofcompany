@@ -5,6 +5,7 @@ const Store = require("../models/Store");
 const StoreInventory = require("../models/StoreInventory");
 const InventoryProduct = require("../models/InventoryProduct");
 const StockMovement = require("../models/StockMovement");
+const InventoryCategory = require("../models/InventoryCategory");
 
 
 async function createMissingInventoryForStore(storeId, companyId) {
@@ -552,6 +553,45 @@ router.delete("/product/:productId", auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+});
+
+
+
+router.post("/category", auth, async (req, res) => {
+  try {
+    if (!req.user.isSuperStakeholder && !req.user.isAdmin)
+      return res.status(403).json({ message: "Access denied" });
+
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: "Name required" });
+
+    const exists = await InventoryCategory.findOne({
+      name,
+      companyId: req.user.companyId
+    });
+
+    if (exists)
+      return res.status(400).json({ message: "Category already exists" });
+
+    const category = await InventoryCategory.create({
+      name,
+      companyId: req.user.companyId,
+      createdBy: req.user._id
+    });
+
+    res.status(201).json(category);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+router.get("/categories", auth, async (req, res) => {
+  const categories = await InventoryCategory.find({
+    companyId: req.user.companyId
+  }).sort({ name: 1 });
+
+  res.json(categories);
 });
 
 

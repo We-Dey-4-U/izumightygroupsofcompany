@@ -25,12 +25,11 @@ const inventoryProductSchema = new mongoose.Schema(
       immutable: true
     },
 
-   category: {
-  type: String,
-  required: true,
-  trim: true // optional: trims whitespace
+ category: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "InventoryCategory",
+  required: true
 },
-
     image: String,
 
     costPrice: { type: Number, required: true },
