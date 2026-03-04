@@ -201,6 +201,9 @@ router.post("/stock-out/:productId", auth, async (req, res) => {
 // -------------------------------------------------
 // GET ALL PRODUCTS WITH TOTAL STOCK
 // -------------------------------------------------
+// -------------------------------------------------
+// GET ALL PRODUCTS WITH TOTAL STOCK + CATEGORY NAME
+// -------------------------------------------------
 router.get("/products", auth, async (req, res) => {
   try {
     const companyId = req.user.companyId;
@@ -208,6 +211,24 @@ router.get("/products", auth, async (req, res) => {
     const products = await InventoryProduct.aggregate([
       { $match: { companyId } },
 
+      // 🔹 LOOKUP CATEGORY (SAFE FOR OLD DATA)
+      {
+        $lookup: {
+          from: "inventorycategories",
+          localField: "category",
+          foreignField: "_id",
+          as: "categoryData"
+        }
+      },
+
+      // 🔹 KEEP OLD STORED QUANTITY (for backward compatibility)
+      {
+        $addFields: {
+          oldQuantityInStock: "$quantityInStock"
+        }
+      },
+
+      // 🔹 LIVE STOCK CALCULATION
       {
         $lookup: {
           from: "storeinventories",
@@ -220,14 +241,6 @@ router.get("/products", auth, async (req, res) => {
         }
       },
 
-      // ✅ keep old stored quantity
-      {
-        $addFields: {
-          oldQuantityInStock: "$quantityInStock"
-        }
-      },
-
-      // ✅ calculate new live quantity
       {
         $addFields: {
           quantityInStock: {
@@ -236,7 +249,20 @@ router.get("/products", auth, async (req, res) => {
         }
       },
 
-      { $project: { stock: 0 } },
+      // 🔹 RETURN CATEGORY NAME IF FOUND, ELSE RETURN ORIGINAL VALUE
+      {
+        $addFields: {
+          category: {
+            $cond: [
+              { $gt: [{ $size: "$categoryData" }, 0] },
+              { $arrayElemAt: ["$categoryData.name", 0] },
+              "$category"
+            ]
+          }
+        }
+      },
+
+      { $project: { stock: 0, categoryData: 0 } },
       { $sort: { createdAt: -1 } }
     ]);
 
@@ -250,7 +276,6 @@ router.get("/products", auth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
 
 
 // =====================================================

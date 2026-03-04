@@ -20,7 +20,7 @@ const orderSchema = new mongoose.Schema(
     shipping: { type: Object, required: true },
     paymentMethod: { 
   type: String, 
-  enum: ["stripe", "bankTransfer"], 
+ enum: ["stripe", "bankTransfer", "flutterwave"],
   required: true 
 },
      receipt: { 

@@ -33,7 +33,7 @@ const inventoryProductSchema = new mongoose.Schema(
     image: String,
 
     costPrice: { type: Number, required: true },
-    sellingPrice: { type: Number, required: true },
+   sellingPrice: { type: Number, default: 0 }, // no longer required
 
     quantityInStock: { type: Number, default: 0 },
    // itemsSold: { type: Number, default: 0 },
