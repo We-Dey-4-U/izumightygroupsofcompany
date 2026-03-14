@@ -12,7 +12,7 @@ const rolePermissions = require("../utils/rolePermissions");
 // =============================
 router.put("/assign-role", auth, async (req, res) => {
   try {
-    if (!req.user.isSuperStakeholder && !req.user.isAdmin)
+    if (!req.user.isSuperStakeholder && !req.user.isAdmin && !req.user.isIventraAdmin)
       return res.status(403).json({ message: "Not allowed" });
 
     const { email, role } = req.body;
@@ -59,7 +59,7 @@ router.put("/assign-role", auth, async (req, res) => {
 // =============================
 router.put("/permissions", auth, async (req, res) => {
   try {
-    if (!req.user.isSuperStakeholder)
+    if (!req.user.isSuperStakeholder && !req.user.isIventraAdmin)
       return res.status(403).json({ message: "Only super stakeholders allowed" });
 
     const { email, permissions } = req.body;

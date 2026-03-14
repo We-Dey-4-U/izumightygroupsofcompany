@@ -89,16 +89,27 @@ const companyDataAccess = (model) => async (req, res, next) => {
 
 const permit = (...allowedPermissions) => {
   return (req, res, next) => {
+
+    // ✅ Always allow admins & stakeholders
+    if (
+      req.user.isAdmin ||
+      req.user.isSuperStakeholder ||
+      req.user.isSubAdmin
+    ) {
+      return next();
+    }
+
     const perms = req.user.permissions || [];
 
     const allowed = allowedPermissions.some(p =>
       perms.includes(p)
     );
 
-    if (!allowed)
+    if (!allowed) {
       return res.status(403).json({
         message: "Permission denied"
       });
+    }
 
     next();
   };

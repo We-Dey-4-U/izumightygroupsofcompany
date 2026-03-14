@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { auth, permit, isAdmin, isSuperStakeholder, isSubAdmin } = require("../middleware/auth");
+const { auth, permit, isAdmin, isSuperStakeholder, isSubAdmin, isIventraAdmin, isStaff } = require("../middleware/auth");
 const { updateCompanyTaxFromSales } = require("../utils/companyTaxUpdater");
 const Sale = require("../models/Sale");
 const InventoryProduct = require("../models/InventoryProduct");
@@ -11,6 +11,8 @@ const mongoose = require("mongoose");  // ← ADD THIS
 const Store = require("../models/Store");
 const StoreInventory = require("../models/StoreInventory");
 
+
+//&& !req.user.isIventraAdmin
 // Generate Sale ID
 const generateSaleId = () => `SALE-${Math.floor(100000 + Math.random() * 900000)}`;
 // Generate Invoice ID
@@ -273,7 +275,7 @@ res.status(201).json({
 // GET ALL SALES
 // ======================================================
 router.get("/all", auth, permit("view_sales"), async (req,res)=>{
-  if (!req.user.isAdmin && !req.user.isSuperStakeholder && !req.user.isSubAdmin) {
+  if (!req.user.isAdmin && !req.user.isSuperStakeholder && !req.user.isSubAdmin && !req.user.isIventraAdmin && !req.user.isStaff) {
     return res.status(403).json({ message: "Access denied" });
   }
 

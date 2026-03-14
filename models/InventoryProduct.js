@@ -16,7 +16,7 @@ const inventoryProductSchema = new mongoose.Schema(
     },
 
     name: { type: String, required: true },
-    productModel: { type: String, required: true },
+    productModel: { type: String },
 
     productCode: {
       type: String,
@@ -32,7 +32,7 @@ const inventoryProductSchema = new mongoose.Schema(
 },
     image: String,
 
-    costPrice: { type: Number, required: true },
+    costPrice: { type: Number},
    sellingPrice: { type: Number, default: 0 }, // no longer required
 
     quantityInStock: { type: Number, default: 0 },
@@ -58,5 +58,6 @@ const inventoryProductSchema = new mongoose.Schema(
  // this.itemsAvailable = this.quantityInStock - this.itemsSold;
   //next();
 //});
-
+// ✅ ADD THIS INDEX HERE
+inventoryProductSchema.index({ companyId: 1, createdAt: -1 });
 module.exports = mongoose.model("InventoryProduct", inventoryProductSchema);
