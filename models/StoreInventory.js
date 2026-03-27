@@ -30,4 +30,6 @@ const storeInventorySchema = new mongoose.Schema({
 
 storeInventorySchema.index({ store: 1, product: 1 }, { unique: true });
 storeInventorySchema.index({ companyId: 1, store: 1, product: 1 });
+// 🔥 ADD THIS (CRITICAL FOR SPEED)
+storeInventorySchema.index({ product: 1 });
 module.exports = mongoose.model("StoreInventory", storeInventorySchema);

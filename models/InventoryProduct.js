@@ -1,13 +1,13 @@
 const mongoose = require("mongoose");
 
-// Generate unique product code
+// 🔐 Generate unique product code
 const generateProductCode = () => {
   return `PRD-${Math.floor(100000 + Math.random() * 900000)}`;
 };
 
 const inventoryProductSchema = new mongoose.Schema(
   {
-    // 🔹 MULTI-TENANT ISOLATION (MATCH PAYROLL)
+    // 🔹 MULTI-TENANT ISOLATION
     companyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Company",
@@ -15,9 +15,20 @@ const inventoryProductSchema = new mongoose.Schema(
       index: true
     },
 
-    name: { type: String, required: true },
-    productModel: { type: String },
+    // ✅ NORMALIZED NAME
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true
+    },
 
+    productModel: {
+      type: String,
+      trim: true
+    },
+
+    // 🔐 UNIQUE PRODUCT CODE
     productCode: {
       type: String,
       unique: true,
@@ -25,26 +36,38 @@ const inventoryProductSchema = new mongoose.Schema(
       immutable: true
     },
 
- category: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "InventoryCategory",
-  required: true
-},
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryCategory",
+      required: true
+    },
+
     image: String,
 
-    costPrice: { type: Number},
-   sellingPrice: { type: Number, default: 0 }, // no longer required
+    costPrice: {
+      type: Number,
+      required: true,
+      min: 0
+    },
 
-    quantityInStock: { type: Number, default: 0 },
-   // itemsSold: { type: Number, default: 0 },
+    sellingPrice: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
 
-   // itemsAvailable: {
-    //  type: Number,
-    //  default: function () {
-       // return this.quantityInStock - this.itemsSold;
-      //}
-   // },
-     totalSold: { type: Number, default: 0 },
+    quantityInStock: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    totalSold: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User"
@@ -53,11 +76,27 @@ const inventoryProductSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Auto-update available items
-//inventoryProductSchema.pre("save", function (next) {
- // this.itemsAvailable = this.quantityInStock - this.itemsSold;
-  //next();
-//});
-// ✅ ADD THIS INDEX HERE
+
+// ✅ PRE-SAVE SAFETY (extra normalization)
+inventoryProductSchema.pre("save", function (next) {
+  if (this.name) {
+    this.name = this.name.trim().toLowerCase();
+  }
+  next();
+});
+
+
+// ✅ INDEXES
+
+// for fast queries
 inventoryProductSchema.index({ companyId: 1, createdAt: -1 });
+
+// 🔥 prevent duplicate names per company
+inventoryProductSchema.index(
+  { companyId: 1, name: 1 },
+  { unique: true }
+);
+
+
+// 🚀 EXPORT
 module.exports = mongoose.model("InventoryProduct", inventoryProductSchema);

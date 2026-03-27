@@ -39,18 +39,44 @@ async function createMissingInventoryForStore(storeId, companyId) {
 // -------------------------------------------------
 router.post("/product", auth, async (req, res) => {
   try {
-    // permission
-    if (!req.user.isAdmin && !req.user.isSubAdmin && !req.user.isSuperStakeholder && !req.user.isIventraAdmin) {
+    // 🔐 permission check
+    if (
+      !req.user.isAdmin &&
+      !req.user.isSubAdmin &&
+      !req.user.isSuperStakeholder &&
+      !req.user.isIventraAdmin
+    ) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const { name, productModel, category, image, costPrice, sellingPrice } = req.body;
+    let { name, productModel, category, image, costPrice, sellingPrice } = req.body;
 
-    if (!name || !productModel || !category || !costPrice || !sellingPrice) {
+    // ✅ normalize input
+    if (name) name = name.trim().toLowerCase();
+
+    // ✅ proper validation (allow 0 values)
+    if (!name || !productModel || !category || costPrice == null || sellingPrice == null) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // create product
+    // ✅ escape regex special characters (IMPORTANT)
+    const escapeRegex = (text) => {
+      return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    };
+
+    // ✅ check duplicate product name (case-insensitive & safe)
+    const existingProduct = await InventoryProduct.findOne({
+      companyId: req.user.companyId,
+      name: { $regex: `^${escapeRegex(name)}$`, $options: "i" }
+    });
+
+    if (existingProduct) {
+      return res.status(400).json({
+        message: "Product with this name already exists"
+      });
+    }
+
+    // ✅ create product
     const product = await InventoryProduct.create({
       companyId: req.user.companyId,
       name,
@@ -66,34 +92,41 @@ router.post("/product", auth, async (req, res) => {
     // 🔥 create inventory rows for ALL stores
     const stores = await Store.find({ companyId: req.user.companyId });
 
-   if (stores.length > 0) {
-  const ops = stores.map(store => ({
-    updateOne: {
-      filter: { store: store._id, product: product._id },
-      update: {
-        $setOnInsert: {
-          companyId: req.user.companyId,
-          quantity: 0
+    if (stores.length > 0) {
+      const ops = stores.map((store) => ({
+        updateOne: {
+          filter: { store: store._id, product: product._id },
+          update: {
+            $setOnInsert: {
+              companyId: req.user.companyId,
+              quantity: 0
+            }
+          },
+          upsert: true
         }
-      },
-      upsert: true
+      }));
+
+      await StoreInventory.bulkWrite(ops);
     }
-  }));
 
-  await StoreInventory.bulkWrite(ops);
-}
-
+    // ✅ success response
     res.status(201).json({
       message: "Product created successfully",
       product
     });
 
   } catch (err) {
+    // ✅ handle duplicate key error (DB-level protection)
+    if (err.code === 11000) {
+      return res.status(400).json({
+        message: "Product with this name already exists"
+      });
+    }
+
     console.error("CREATE PRODUCT ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
-
 // -------------------------------------------------
 // STOCK IN (ALL STORES)
 // -------------------------------------------------
@@ -217,6 +250,7 @@ router.get("/products", auth, async (req, res) => {
 },
 {
   $project: {
+    _id: 1, // ✅ ensure it's there
     name: 1,
     productModel: 1,
     category: 1,
@@ -246,25 +280,6 @@ router.get("/products", auth, async (req, res) => {
       },
 
       // 🔹 LIVE STOCK CALCULATION
-     // {
-       // $lookup: {
-       //   from: "storeinventories",
-       ///   let: { productId: "$_id" },
-        //  pipeline: [
-         //   { $match: { $expr: { $eq: ["$product", "$$productId"] } } },
-         //   { $group: { _id: null, total: { $sum: "$quantity" } } }
-        //  ],
-      //    as: "stock"
-     //   }
-    //  },
-
-    //  {
-     //   $addFields: {
-       //   quantityInStock: {
-        //    $ifNull: [{ $arrayElemAt: ["$stock.total", 0] }, 0]
-        //  }
-      //  }
-    //  },
 
     // 🔹 FAST LIVE STOCK CALCULATION
 {
@@ -272,19 +287,57 @@ router.get("/products", auth, async (req, res) => {
     from: "storeinventories",
     localField: "_id",
     foreignField: "product",
-    as: "stock"
+    as: "stores"
   }
 },
-
+{
+  $lookup: {
+    from: "stores",
+    localField: "stores.store",
+    foreignField: "_id",
+    as: "storeDetails"
+  }
+},
 {
   $addFields: {
-    quantityInStock: {
-      $sum: "$stock.quantity"
+    stores: {
+      $map: {
+        input: "$stores",
+        as: "s",
+        in: {
+          _id: "$$s._id",
+          quantity: "$$s.quantity",
+          store: {
+            $arrayElemAt: [
+              {
+                $filter: {
+                  input: "$storeDetails",
+                  as: "sd",
+                  cond: { $eq: ["$$sd._id", "$$s.store"] }
+                }
+              },
+              0
+            ]
+          }
+        }
+      }
     }
   }
 },
+{
+  $addFields: {
+    quantityInStock: {
+      $sum: "$stores.quantity"
+    }
+  }
+},
+{
+  $project: {
+    storeDetails: 0
+  }
+},
 
-      // 🔹 RETURN CATEGORY NAME IF FOUND, ELSE RETURN ORIGINAL VALUE
+      // 🔹 RETURN CATEGORY NAME IF FOUND, ELSE RETURN ORIGINAL VALUe
       {
         $addFields: {
           category: {
